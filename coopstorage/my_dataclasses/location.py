@@ -37,3 +37,14 @@ def location_factory(location: Location = None,
         resource_limitations=resource_limitations,
         id=id
     )
+
+def location_generation(
+        definition_dict: Dict[UoMCapacity, int]
+) -> List[Location]:
+    ret = []
+
+    for cap, n in definition_dict.items():
+        for ii in range(n):
+            ret.append(location_factory(uom_capacities=frozenset([cap])))
+
+    return ret
