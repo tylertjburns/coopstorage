@@ -29,6 +29,13 @@ class Content:
     def __str__(self):
         return f"C({self.resource.name}, {self.uom.name}, {self.qty})"
 
+    def as_dict(self):
+        return {
+            'id': str(self.id),
+            'resource_uom': self.resourceUoM.as_dict(),
+            'qty': self.qty
+        }
+
     @property
     def resource(self) -> Resource:
         return self.resourceUoM.resource

@@ -15,6 +15,18 @@ class Resource:
     description: str
     type: ResourceType
 
+    def __hash__(self):
+        return hash((self.name, self.type))
+
+    def __eq__(self, other):
+        return hash(self) == hash(other)
+
+    def as_dict(self):
+        return {
+            'name': self.name,
+            'description': self.description,
+            'type': self.type.name
+        }
 
 def resource_factory(resource: Resource = None,
                      name: str = None,

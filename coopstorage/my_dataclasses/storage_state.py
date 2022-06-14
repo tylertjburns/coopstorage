@@ -23,6 +23,14 @@ class StorageState:
     def __str__(self):
         return f"StorageState(id: {self.id}, Locs: {len(self.Inventory)}, occupied: {len(self.OccupiedLocs)}, empty: {len(self.EmptyLocs)})"
 
+    def as_dict(self):
+        return {
+            'id': str(self.id),
+            'inventory': {
+                str(k.id): [x.as_dict() for x in v] for k, v in self.Inventory.items()
+            }
+        }
+
     def print(self):
         pprint(self.Inventory)
 
@@ -227,6 +235,11 @@ class StorageState:
     @property
     def LocInvStateByLocation(self) -> Dict[Location, LocInvState]:
         return {x.location: x for x in self.loc_states}
+
+    @property
+    def ResourceUoMManifest(self) -> List[ResourceUoM]:
+        return list(self.InventoryByResourceUom.keys())
+
 
 def storage_state_factory(storage_state: StorageState = None,
                           id: str = None,

@@ -20,6 +20,13 @@ class Location:
     def UoMCapacities(self) -> Dict[UoM, float]:
         return {x.uom: x.capacity for x in self.uom_capacities}
 
+    def as_dict(self):
+        return {
+            'id': str(self.id),
+            'uom_capacities': [x.as_dict() for x in self.uom_capacities],
+            'resource_limitations': [x.as_dict() for x in self.resource_limitations]
+        }
+
 def location_factory(location: Location = None,
                      uom_capacities: frozenset[UoMCapacity] = None,
                      resource_limitations: frozenset[Resource] = None,
@@ -49,3 +56,10 @@ def location_generation(
             ret.append(location_factory(location=loc, id=uuid.uuid4()))
 
     return ret
+
+if __name__ == "__main__":
+    from dataclasses import asdict
+
+    loc = location_factory()
+
+    print(asdict(loc))

@@ -6,3 +6,9 @@ from coopstorage.my_dataclasses import UoM
 class UoMCapacity:
     uom: UoM
     capacity: float
+
+    def as_dict(self):
+        return {
+            'uom': self.uom.as_dict(),
+            'capacity': self.capacity
+        }
