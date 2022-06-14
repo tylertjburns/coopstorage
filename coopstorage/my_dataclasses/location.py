@@ -1,13 +1,14 @@
 from dataclasses import dataclass, field
 from coopstorage.my_dataclasses import UoMCapacity, Resource, UoM
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Union
 import uuid
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, slots=True)
 class Location:
     uom_capacities: frozenset[UoMCapacity] = field(default_factory=frozenset)
     resource_limitations: frozenset[Resource] = field(default_factory=frozenset)
-    id: Optional[str] = None
+    id: Optional[Union[str, uuid.UUID]] = None
 
     def __post_init__(self):
         if self.id is None: object.__setattr__(self, 'id', uuid.uuid4())
@@ -22,7 +23,7 @@ class Location:
 def location_factory(location: Location = None,
                      uom_capacities: frozenset[UoMCapacity] = None,
                      resource_limitations: frozenset[Resource] = None,
-                     id: str = None) -> Location:
+                     id: Union[str, uuid.UUID] = None) -> Location:
 
     uom_capacities = uom_capacities if uom_capacities is not None else \
                     (location.uom_capacities if location else None) or frozenset()
@@ -39,12 +40,12 @@ def location_factory(location: Location = None,
     )
 
 def location_generation(
-        definition_dict: Dict[UoMCapacity, int]
+        loc_template_quantities: Dict[Location, int]
 ) -> List[Location]:
     ret = []
 
-    for cap, n in definition_dict.items():
+    for loc, n in loc_template_quantities.items():
         for ii in range(n):
-            ret.append(location_factory(uom_capacities=frozenset([cap])))
+            ret.append(location_factory(location=loc, id=uuid.uuid4()))
 
     return ret

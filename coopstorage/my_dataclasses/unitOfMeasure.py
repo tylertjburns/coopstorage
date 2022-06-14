@@ -1,9 +1,11 @@
 import uuid
 from dataclasses import dataclass
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, slots=True)
 class UoM:
     name: str
+
 
 def uom_factory(uom: UoM = None,
                 name: str = None) -> UoM:

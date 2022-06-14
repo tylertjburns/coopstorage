@@ -2,7 +2,8 @@ from coopstorage.my_dataclasses import Location, Content, ResourceUoM, merge_con
 from dataclasses import dataclass, field
 from typing import List
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, slots=True)
 class LocInvState:
     location: Location
     contents: frozenset[Content] = field(default_factory=frozenset)
@@ -30,6 +31,13 @@ class LocInvState:
     def qty_uom(self, uom: UoM) -> float:
         qty = sum([x.qty for x in self.content(uom_filter=[uom])])
         return qty
+
+    def space_at_location(self, uom: UoM):
+        if (self.ActiveUoMDesignations in [[], None]) or \
+                uom in self.ActiveUoMDesignations:
+            return self.location.UoMCapacities[uom] - sum(x.qty for x in self.content(uom_filter=[uom]))
+        else:
+            return 0
 
     @property
     def ActiveUoMDesignations(self):

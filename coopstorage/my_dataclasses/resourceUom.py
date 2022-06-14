@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 from coopstorage.my_dataclasses import Resource, UoM, resource_factory, uom_factory
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, slots=True)
 class ResourceUoM:
     resource: Resource
     uom: UoM
+
 
 def resourceUom_factory(resource_uom: ResourceUoM = None,
                         resource: Resource = None,

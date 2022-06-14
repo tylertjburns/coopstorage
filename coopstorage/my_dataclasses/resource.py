@@ -8,11 +8,13 @@ from enum import auto
 class ResourceType(CoopEnum):
     DEFAULT = auto()
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, slots=True)
 class Resource:
     name: str
     description: str
     type: ResourceType
+
 
 def resource_factory(resource: Resource = None,
                      name: str = None,

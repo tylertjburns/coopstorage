@@ -1,6 +1,6 @@
 import uuid
 from dataclasses import dataclass, field
-from coopstorage.my_dataclasses import Resource, ResourceUoM, ResourceType, UoM, resourceUom_factory, resource_factory, uom_factory
+from coopstorage.my_dataclasses import Resource, ResourceUoM, ResourceType, UoM, resourceUom_factory, resource_factory, uom_factory, UoMCapacity
 from typing import List, Tuple
 import random as rnd
 
@@ -8,7 +8,8 @@ class ContentFactoryException(Exception):
     def __init__(self):
         super().__init__(str(type(self)))
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, slots=True)
 class Content:
     resourceUoM: ResourceUoM
     qty: float
@@ -35,6 +36,10 @@ class Content:
     @property
     def uom(self) -> UoM:
         return self.resourceUoM.uom
+
+    @property
+    def CapacityRequired(self) -> UoMCapacity:
+        return UoMCapacity(uom=self.uom, capacity=self.qty)
 
 def content_factory(content: Content = None,
                     resource_uom: ResourceUoM = None,

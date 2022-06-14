@@ -1,13 +1,14 @@
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Callable
-from coopstorage.my_dataclasses import Location, Content, ResourceUoM, UoM, Resource, content_factory, merge_content, LocInvState
+from typing import List, Dict, Optional, Callable, Tuple
+from coopstorage.my_dataclasses import Location, Content, ResourceUoM, UoM, Resource, content_factory, merge_content, LocInvState, UoMCapacity
 import uuid
 from pprint import pprint
 from coopstorage.exceptions import *
 
-location_prioritizer = Callable[[List[Location]], Location]
+location_prioritizer = Callable[[List[LocInvState]], Location]
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, slots=True)
 class StorageState:
     loc_states: frozenset[LocInvState]
     id: str = uuid.uuid4()
@@ -20,7 +21,7 @@ class StorageState:
         return self._loc_to_state_map[item]
 
     def __str__(self):
-        return f"id: {self.id}, Locs: {len(self.Inventory)}, occupied: {len(self.OccupiedLocs)}, empty: {len(self.EmptyLocs)}"
+        return f"StorageState(id: {self.id}, Locs: {len(self.Inventory)}, occupied: {len(self.OccupiedLocs)}, empty: {len(self.EmptyLocs)})"
 
     def print(self):
         pprint(self.Inventory)
@@ -71,38 +72,54 @@ class StorageState:
     def space_at_locations(self, uom: UoM, locations: List[Location] = None) -> Dict[Location, float]:
         ret = {}
 
-        content_by_location = self.content_by_location(location_filter=locations, aggregate=True)
+        if locations is None:
+            locations = self.Locations
 
-        for location, content_at_loc in content_by_location.items():
-            if self.ActiveDesignations[location] in [[], None, uom]:
-                ret[location] = location.UoMCapacities[uom] - sum(x.qty for x in content_at_loc)
-            else:
-                ret[location] = 0
+        for location in locations:
+            ret[location] = self._loc_to_state_map[location].space_at_location(uom)
 
         return ret
 
-    def location_match(self,
-                       resource_uoms: List[ResourceUoM] = None,
-                       required_uom_types: List[UoM] = None,
-                       loc_resource_limits: List[Resource] = None,
-                       location_range: List[Location] = None) -> List[Location]:
-        matches = [loc for loc in self.Inventory.keys()]
+    def loc_state_matches(self,
+                          resource_uoms: List[ResourceUoM] = None,
+                          uom_capacities: List[UoM] = None,
+                          loc_resource_limits: List[Resource] = None,
+                          location_range: List[Location] = None,
+                          space_avail_for_uom: UoMCapacity = None,
+                          has_content: Content = None) -> List[LocInvState]:
+        # start with all states
+        matches = list(self.loc_states)
 
+        # filter by the specified location range
         if location_range:
-            matches = [loc for loc in matches if loc in location_range]
+            matches = [state for state in matches if state.location in location_range]
 
-        if required_uom_types:
-            matches = [loc for loc in matches
-                       if all(x in loc.UoMCapacities.keys() for x in required_uom_types)]
+        # filter by locations that match the provided uom capacities
+        if uom_capacities:
+            matches = [state for state in matches
+                       if all(x in state.location.UoMCapacities.keys() for x in uom_capacities)]
 
+        # filter by locations that have the provided resource uoms
         if resource_uoms:
-            matches = [loc for loc in matches
-                       if any(c.resourceUoM in resource_uoms for c in self.Inventory[loc])]
+            matches = [state for state in matches
+                       if any(c.resourceUoM in resource_uoms for c in self.Inventory[state.location])]
 
+        # filter by locations that match the provided resource limitations
         if loc_resource_limits:
-            matches = [loc for loc in matches
-                       if not loc.resource_limitations or all(x in loc.resource_limitations
+            matches = [state for state in matches
+                       if not state.location.resource_limitations or all(x in state.location.resource_limitations
                                                            for x in loc_resource_limits)]
+
+        # filter by locations with open space
+        if space_avail_for_uom:
+            space_at_matches = self.space_at_locations(uom=space_avail_for_uom.uom,
+                                                       locations=[x.location for x in matches])
+            matches = [state for state in matches if space_at_matches[state.location] >= space_avail_for_uom.capacity]
+
+        # filter by locations with content exceeding has_content
+        if has_content:
+            matches = [state for state in matches
+             if self.qty_resource_uom_at_location(state.location, resource_uom=has_content.resourceUoM) >= has_content.qty]
 
         return matches
 
@@ -114,29 +131,46 @@ class StorageState:
 
         ret = {}
         for resource_uom in resource_uoms:
-            locs = self.location_match(loc_resource_limits=[resource_uom.resource])
+            loc_states = self.loc_state_matches(loc_resource_limits=[resource_uom.resource])
             available_space = sum(
-                [space for loc, space in self.space_at_locations(locations=locs, uom=resource_uom.uom).items()])
+                [space for loc, space in self.space_at_locations(locations=[x.location for x in loc_states], uom=resource_uom.uom).items()])
             ret[resource_uom] = available_space
         return ret
 
-    def find_open_location(self, content: Content, prioritizer: location_prioritizer = None) -> Location:
+    def find_location_with_content(self,
+                                   content: Content,
+                                   prioritizer: location_prioritizer = None) -> Location:
+        matches = self.loc_state_matches(has_content=content)
+
+        # handle no location found
+        if len(matches) == 0:
+            raise NoLocationToRemoveContentException(content=content, storage_state=self)
+
+        # return location prioritized from list
+        if prioritizer:
+            return prioritizer(matches)
+
+        # return first entry in matches
+        return next(iter([x.location for x in matches]))
+
+    def find_location_for_content(self,
+                                  content: Content,
+                                  prioritizer: location_prioritizer = None) -> Location:
         # locs matching required uom and resource limitation
-        uom_resource_matches = self.location_match(required_uom_types=[content.uom], loc_resource_limits=[content.resource])
+        matches = self.loc_state_matches(uom_capacities=[content.uom],
+                                         loc_resource_limits=[content.resource],
+                                         space_avail_for_uom=content.CapacityRequired)
 
-        if len(uom_resource_matches) == 0:
-            raise NoLocationFoundException(storage_state=self)
-
-        # locations with capacity
-        space_at_matches = self.space_at_locations(uom=content.uom, locations=uom_resource_matches)
-        matches = [loc for loc in uom_resource_matches if space_at_matches[loc] >= content.qty]
+        # # locations with capacity
+        # space_at_matches = self.space_at_locations(uom=content.uom, locations=[x.location for x in uom_resource_matches])
+        # matches = [state for state in uom_resource_matches if space_at_matches[state.location] >= content.qty]
 
         # raise if no matches have space
         if len(matches) == 0:
             raise NoLocationWithCapacityException(content=content,
                                                   resource_uom_space=self.space_for_resource_uom(
                                                       resource_uoms=[content.resourceUoM])[content.resourceUoM],
-                                                  loc_uom_space_avail=space_at_matches,
+                                                  loc_uom_space_avail=self.space_at_locations(uom=content.uom),
                                                   loc_states=self.loc_states,
                                                   storage_state=self
                                                   )
@@ -146,7 +180,7 @@ class StorageState:
             return prioritizer(matches)
 
         # return first entry in matches
-        return next(iter(matches))
+        return next(iter([x.location for x in matches]))
 
     def qty_of_resource_uoms(self,
                              resource_uoms: List[ResourceUoM] = None,
