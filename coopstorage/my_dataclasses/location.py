@@ -16,6 +16,9 @@ class Location:
     def __hash__(self):
         return hash(self.id)
 
+    def __eq__(self, other):
+        return hash(self) == hash(other)
+
     @property
     def UoMCapacities(self) -> Dict[UoM, float]:
         return {x.uom: x.capacity for x in self.uom_capacities}
@@ -29,16 +32,39 @@ class Location:
 
 def location_factory(location: Location = None,
                      uom_capacities: frozenset[UoMCapacity] = None,
+                     new_uom_capacities: List[UoMCapacity] = None,
+                     removed_uom_capacities: List[UoMCapacity] = None,
                      resource_limitations: frozenset[Resource] = None,
+                     new_resource_limitations: List[Resource] = None,
+                     removed_resource_limitations: List[Resource] = None,
                      id: Union[str, uuid.UUID] = None) -> Location:
 
     uom_capacities = uom_capacities if uom_capacities is not None else \
                     (location.uom_capacities if location else None) or frozenset()
 
+    if new_uom_capacities:
+        uom_capacities = frozenset(list(uom_capacities) + new_uom_capacities)
+
+    if removed_uom_capacities:
+        uom_capacities = set(uom_capacities)
+        uom_capacities.difference_update(removed_uom_capacities)
+        uom_capacities = frozenset(uom_capacities)
+
     resource_limitations = resource_limitations if resource_limitations is not None else \
             (location.resource_limitations if location else None) or frozenset()
 
-    id = id or (location.id if location else None) or uuid.uuid4()
+    if new_resource_limitations:
+        resource_limitations = frozenset(list(resource_limitations) + new_resource_limitations)
+
+    if removed_resource_limitations:
+        resource_limitations = set(resource_limitations)
+        resource_limitations.difference_update(removed_resource_limitations)
+        resource_limitations = frozenset(resource_limitations)
+
+    try:
+        id = uuid.UUID(id)
+    except:
+        id = id or (location.id if location else None) or uuid.uuid4()
 
     return Location(
         uom_capacities=uom_capacities,

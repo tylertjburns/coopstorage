@@ -1,6 +1,8 @@
 from coopstorage.my_dataclasses import Content, Location, StorageState, storage_state_factory, location_prioritizer
 import coopstorage.storage.loc_inv_state_mutations as lism
 from coopstorage.logger import logger
+from typing import List
+from coopstorage.exceptions import *
 
 def add_content(storage_state: StorageState,
                 content: Content,
@@ -43,6 +45,21 @@ def remove_content(
 
     return new_storage_state
 
+def add_locations(state: StorageState, locations: List[Location]) -> StorageState:
+    new_state = storage_state_factory(
+        storage_state=state,
+        added_locations=locations
+    )
+    logger.info(f"{locations} added to {state} yielding {new_state}")
 
+    return new_state
 
+def remove_locations(state: StorageState, locations: List[Location]) -> StorageState:
+    new_state = storage_state_factory(
+        storage_state=state,
+        removed_locations=locations
+    )
 
+    logger.info(f"{locations} removed from {state} yielding {new_state}")
+    print(f"{locations} removed from {state} yielding {new_state}")
+    return new_state

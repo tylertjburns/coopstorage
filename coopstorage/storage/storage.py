@@ -29,16 +29,16 @@ class Storage:
                     location: Location = None,
                     loc_prioritizer: location_prioritizer = None):
         with self._lock:
-           lookup_resource_uom = next(iter(x for x in self.state.ResourceUoMManifest if x == content.resourceUoM), None)
+            lookup_resource_uom = next(iter(x for x in self.state.ResourceUoMManifest if x == content.resourceUoM), None)
 
-           content = content_factory(content=content, resource_uom=lookup_resource_uom)
+            content = content_factory(content=content, resource_uom=lookup_resource_uom)
 
-           self.state = ssm.add_content(
+            self.state = ssm.add_content(
                storage_state=self.state,
                content=content,
                location=location,
                loc_prioritizer=loc_prioritizer
-           )
+            )
 
     def remove_content(
             self,
@@ -57,4 +57,12 @@ class Storage:
 
     def location_by_id(self, id: Union[str, uuid.UUID]) -> Location:
         return next(iter([x for x in self.state.Locations if x.id == id]), None)
+
+    def add_locations(self, locations: List[Location]):
+        with self._lock:
+            self.state=ssm.add_locations(state=self.state, locations=locations)
+
+    def remove_locations(self, locations: List[Location]):
+        with self._lock:
+            self.state=ssm.remove_locations(state=self.state, locations=locations)
 

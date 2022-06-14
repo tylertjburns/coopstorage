@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Callable, Tuple
+from typing import List, Dict, Optional, Callable, Tuple, Union
 from coopstorage.my_dataclasses import Location, Content, ResourceUoM, UoM, Resource, content_factory, merge_content, LocInvState, UoMCapacity
 import uuid
 from pprint import pprint
@@ -242,16 +242,31 @@ class StorageState:
 
 
 def storage_state_factory(storage_state: StorageState = None,
-                          id: str = None,
+                          id: Union[str, uuid.UUID] = None,
                           all_loc_states: List[LocInvState] = None,
-                          updated_loc_states: List[LocInvState] = None
+                          updated_loc_states: List[LocInvState] = None,
+                          added_locations: List[Location] = None,
+                          removed_locations: List[Location] = None
                           ) -> StorageState:
-    id = id or (storage_state.id if storage_state else None) or uuid.uuid4()
+    try:
+        id = uuid.UUID(id)
+    except:
+        id = id or (storage_state.id if storage_state else None) or uuid.uuid4()
 
 
-    all_loc_states = all_loc_states or (list(storage_state.loc_states) if storage_state else None) or []
-    updated_dict = {x.location: x for x in updated_loc_states}
-    loc_states = frozenset([updated_dict.get(x.location, x) for x in all_loc_states])
+    loc_states = all_loc_states or (list(storage_state.loc_states) if storage_state else None) or []
+
+    if updated_loc_states:
+        updated_dict = {x.location: x for x in updated_loc_states}
+        loc_states = frozenset([updated_dict.get(x.location, x) for x in loc_states])
+
+    if added_locations:
+        loc_states = frozenset(list(loc_states) + [LocInvState(x) for x in added_locations])
+
+    if removed_locations:
+        lookup = {x.location: x for x in loc_states}
+        [lookup.pop(x) for x in removed_locations]
+        loc_states = frozenset(lookup.values())
 
     return StorageState(
         id=id,
