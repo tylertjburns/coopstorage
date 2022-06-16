@@ -1,12 +1,11 @@
 from flask import Flask
-from flask_restful import Resource, Api, reqparse
-import ast
+from flask_restful import Api
 from coopstorage.storage import Storage
-from coopstorage.my_dataclasses import ResourceUoM, UoMCapacity, location_factory, content_factory, Content, location_generation, Location, resourceUom_factory
+from coopstorage.my_dataclasses import UoMCapacity, location_generation, Location
 import tests.uom_manifest as uoms
-from coopstorage.api.api_locations import Api_Locations
-from coopstorage.api.api_inventory import Api_Inventory
-from coopstorage.api.api_resourceUomManifest import Api_ResourceUoMManifest
+from api.api_locations import Api_Locations
+from api.api_inventory import Api_Inventory
+from api.api_resourceUomManifest import Api_ResourceUoMManifest
 
 
 app = Flask(__name__)

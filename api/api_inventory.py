@@ -1,5 +1,5 @@
-from coopstorage.api.constants import *
-from flask_restful import Resource, Api, reqparse
+from api.constants import *
+from flask_restful import Resource, reqparse
 from coopstorage.my_dataclasses import content_factory, Content, Location, resourceUom_factory
 import tests.uom_manifest as uoms
 from typing import Tuple

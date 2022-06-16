@@ -31,7 +31,8 @@ class Storage:
         with self._lock:
             lookup_resource_uom = next(iter(x for x in self.state.ResourceUoMManifest if x == content.resourceUoM), None)
 
-            content = content_factory(content=content, resource_uom=lookup_resource_uom)
+            content = content_factory(content=content, resource_uom=lookup_resource_uom) if lookup_resource_uom else \
+                content
 
             self.state = ssm.add_content(
                storage_state=self.state,
