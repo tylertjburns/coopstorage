@@ -2,6 +2,8 @@ from api.constants import *
 from flask_restful import Resource, reqparse
 from coopstorage.my_dataclasses import Location, location_factory
 from coopstorage.storage import Storage
+from typing import List
+from coopstorage.resolvers import split_strip
 
 
 class Api_Locations(Resource):
@@ -23,11 +25,25 @@ class Api_Locations(Resource):
 
         return loc
 
-    def _location_manifest(self):
-        return {'data': [x.as_dict() for x in self.inv.state.Locations]}
+    def _location_manifest(self, loc_ids: List[str] = None):
+        ret = [x.as_dict() for x in self.inv.state.Locations]
+        if loc_ids:
+            ret = [x for x in ret if x['id'] in loc_ids]
+        return {'data': ret}
 
     def get(self):
-        return self._location_manifest(), 200
+        parser = reqparse.RequestParser()  # initialize
+
+        # add arguments
+        parser.add_argument(LOC_ID_TXT, required=False, location='form')
+
+        # parse arguments to dictionary
+        args = parser.parse_args()
+        loc_ids_str = args.get(LOC_ID_TXT, None)
+        loc_ids = split_strip(loc_ids_str) if loc_ids_str and loc_ids_str != '' else None
+
+        print(loc_ids)
+        return self._location_manifest(loc_ids), 200
 
     def post(self):
         loc = self._resolve_args()

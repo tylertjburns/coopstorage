@@ -244,7 +244,7 @@ class StorageState:
 def storage_state_factory(storage_state: StorageState = None,
                           id: Union[str, uuid.UUID] = None,
                           all_loc_states: List[LocInvState] = None,
-                          updated_loc_states: List[LocInvState] = None,
+                          updated_locinv_states: List[LocInvState] = None,
                           added_locations: List[Location] = None,
                           removed_locations: List[Location] = None
                           ) -> StorageState:
@@ -256,8 +256,8 @@ def storage_state_factory(storage_state: StorageState = None,
 
     loc_states = all_loc_states or (list(storage_state.loc_states) if storage_state else None) or []
 
-    if updated_loc_states:
-        updated_dict = {x.location: x for x in updated_loc_states}
+    if updated_locinv_states:
+        updated_dict = {x.location: x for x in updated_locinv_states}
         loc_states = frozenset([updated_dict.get(x.location, x) for x in loc_states])
 
     if added_locations:

@@ -1,6 +1,6 @@
 
 
-RESOURCE_TXT = 'resource'
+RESOURCE_TXT = 'resource_name'
 RESOURCE_DESCRIPTION_TXT = 'resource_description'
 UOM_TXT = 'uom'
 QTY_TXT = 'qty'

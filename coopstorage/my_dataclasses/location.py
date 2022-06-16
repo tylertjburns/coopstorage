@@ -2,11 +2,13 @@ from dataclasses import dataclass, field
 from coopstorage.my_dataclasses import UoMCapacity, Resource, UoM
 from typing import Dict, Optional, List, Union
 import uuid
+from coopstorage.resolvers import try_resolve_guid
 
 
 @dataclass(frozen=True, slots=True)
 class Location:
     uom_capacities: frozenset[UoMCapacity] = field(default_factory=frozenset)
+    #TODO: Change this to a whitelist/blacklist set of lists
     resource_limitations: frozenset[Resource] = field(default_factory=frozenset)
     id: Optional[Union[str, uuid.UUID]] = None
 
@@ -61,10 +63,7 @@ def location_factory(location: Location = None,
         resource_limitations.difference_update(removed_resource_limitations)
         resource_limitations = frozenset(resource_limitations)
 
-    try:
-        id = uuid.UUID(id)
-    except:
-        id = id or (location.id if location else None) or uuid.uuid4()
+    id = try_resolve_guid(id) or (location.id if location else None) or uuid.uuid4()
 
     return Location(
         uom_capacities=uom_capacities,

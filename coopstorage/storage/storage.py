@@ -1,10 +1,11 @@
 import uuid
-from coopstorage.my_dataclasses import Location, Content, content_factory, ResourceUoM, StorageState, loc_inv_state_factory, location_prioritizer
+from coopstorage.my_dataclasses import Location, Content, content_factory, Resource, StorageState, loc_inv_state_factory, location_prioritizer
 import coopstorage.storage.storage_state_mutations as ssm
 from typing import List, Union
 import threading
 import pprint
 from coopstorage.exceptions import *
+from coopstorage.resolvers import try_resolve_guid
 
 class Storage:
 
@@ -57,7 +58,7 @@ class Storage:
         return content
 
     def location_by_id(self, id: Union[str, uuid.UUID]) -> Location:
-        return next(iter([x for x in self.state.Locations if x.id == id]), None)
+        return next(iter([x for x in self.state.Locations if x.id == try_resolve_guid(id)]), None)
 
     def add_locations(self, locations: List[Location]):
         with self._lock:
@@ -66,4 +67,14 @@ class Storage:
     def remove_locations(self, locations: List[Location]):
         with self._lock:
             self.state=ssm.remove_locations(state=self.state, locations=locations)
+
+    def add_resource_limitations_to_location(self, location: Location, resources: List[Resource]) -> Location:
+        with self._lock:
+            self.state=ssm.add_resource_constraints_to_location(
+                state=self.state,
+                location=location,
+                resources=resources
+            )
+
+            return self.location_by_id(location.id)
 

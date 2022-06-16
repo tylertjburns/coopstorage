@@ -12,8 +12,8 @@ class ResourceType(CoopEnum):
 @dataclass(frozen=True, slots=True)
 class Resource:
     name: str
-    description: str
     type: ResourceType
+    description: str = None
 
     def __hash__(self):
         return hash((self.name, self.type))

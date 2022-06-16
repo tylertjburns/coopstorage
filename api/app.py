@@ -6,7 +6,7 @@ import tests.uom_manifest as uoms
 from api.api_locations import Api_Locations
 from api.api_inventory import Api_Inventory
 from api.api_resourceUomManifest import Api_ResourceUoMManifest
-
+from api.api_location_resources import Api_LocationResources
 
 app = Flask(__name__)
 api = Api(app)
@@ -20,6 +20,7 @@ locs = location_generation(loc_template_quantities=
 inv = Storage(locs)
 
 api.add_resource(Api_Locations, '/locations', resource_class_kwargs={'inv': inv})
+api.add_resource(Api_LocationResources, '/locations/resourcelimitations', resource_class_kwargs={'inv': inv})
 api.add_resource(Api_Inventory, '/inventory', resource_class_kwargs={'inv': inv})
 api.add_resource(Api_ResourceUoMManifest, '/resourceuoms', resource_class_kwargs={'inv': inv})
 
