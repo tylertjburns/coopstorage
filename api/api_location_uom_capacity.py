@@ -5,26 +5,27 @@ from coopstorage.storage import Storage
 from typing import Tuple
 
 
-class Api_LocationResources(Resource):
+class Api_LocationUoMCapacity(Resource):
     def __init__(self, inv: Storage):
         self.inv = inv
         super().__init__()
 
-    def _resolve_args(self) -> Tuple[md.Resource, md.Location]:
+    def _resolve_args(self) -> Tuple[md.UoMCapacity, md.Location]:
         parser = reqparse.RequestParser()  # initialize
 
         # add arguments
         parser.add_argument(LOC_ID_TXT, required=True, location='form')
-        parser.add_argument(RESOURCE_TXT, required=True, location='form')
+        parser.add_argument(UOM_TXT, required=True, location='form')
+        parser.add_argument(QTY_TXT, required=True, location='form')
 
         # parse arguments to dictionary
         args = parser.parse_args()
 
         # create objs
         loc = md.location_factory(id=args[LOC_ID_TXT])
-        resource = md.Resource(name=args[RESOURCE_TXT], type=md.ResourceType.DEFAULT)
+        uom_cap = md.UoMCapacity(uom=md.UoM(args[UOM_TXT]), capacity=float(args[QTY_TXT]))
 
-        return resource, loc
+        return uom_cap, loc
 
     def get(self):
         # initialize
@@ -40,13 +41,13 @@ class Api_LocationResources(Resource):
         loc = self.inv.location_by_id(args[LOC_ID_TXT])
 
         if loc:
-            resource_limitations = loc.resource_limitations
-            return {DATA_HEADER: [x.as_dict() for x in resource_limitations]}, 200
+            uom_cap = loc.uom_capacities
+            return {DATA_HEADER: [x.as_dict() for x in uom_cap]}, 200
         else:
             return {ERROR_HEADER: f"no location exists with id: {args[LOC_ID_TXT]}"}, 400
 
     def post(self):
-        resource, loc = self._resolve_args()
+        uom_cap, loc = self._resolve_args()
 
         # create objs
         lookup_loc = self.inv.location_by_id(loc.id)
@@ -55,13 +56,13 @@ class Api_LocationResources(Resource):
             return {ERROR_HEADER: f"no location exists with id: {loc.id}"}, 400
 
         try:
-            new_loc = self.inv.adjust_location(location=lookup_loc, added_resources=[resource])
+            new_loc = self.inv.adjust_location(location=lookup_loc, added_uom_capacities=[uom_cap])
             return {DATA_HEADER: new_loc.as_dict()}, 200
         except Exception as e:
             return {ERROR_HEADER: str(e)}, 400
 
     def delete(self):
-        resource, loc = self._resolve_args()
+        uom_cap, loc = self._resolve_args()
 
         # create objs
         lookup_loc = self.inv.location_by_id(loc.id)
@@ -70,7 +71,7 @@ class Api_LocationResources(Resource):
             return {ERROR_HEADER: f"no location exists with id: {loc.id}"}, 400
 
         try:
-            new_loc = self.inv.adjust_location(location=lookup_loc, removed_resources=[resource])
+            new_loc = self.inv.adjust_location(location=lookup_loc, removed_uom_capacities=[uom_cap])
             return {DATA_HEADER: new_loc.as_dict()}, 200
         except Exception as e:
             return {ERROR_HEADER: str(e)}, 400

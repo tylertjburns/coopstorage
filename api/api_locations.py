@@ -29,7 +29,7 @@ class Api_Locations(Resource):
         ret = [x.as_dict() for x in self.inv.state.Locations]
         if loc_ids:
             ret = [x for x in ret if x['id'] in loc_ids]
-        return {'data': ret}
+        return {DATA_HEADER: ret}
 
     def get(self):
         parser = reqparse.RequestParser()  # initialize
@@ -49,7 +49,7 @@ class Api_Locations(Resource):
         loc = self._resolve_args()
 
         self.inv.add_locations([loc])
-        return {'data': loc.as_dict()}, 200
+        return {DATA_HEADER: loc.as_dict()}, 200
 
     def delete(self):
         loc = self._resolve_args(id_required=True)
@@ -58,4 +58,4 @@ class Api_Locations(Resource):
             self.inv.remove_locations([loc])
             return self._location_manifest(), 200
         except Exception as e:
-            return {'message': str(e)}, 400
+            return {ERROR_HEADER: str(e)}, 400

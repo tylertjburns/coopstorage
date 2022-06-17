@@ -2,30 +2,28 @@ from coopstorage.my_dataclasses import Location, location_factory, UoMCapacity, 
 from typing import List
 from coopstorage.logger import logger
 
-def add_uom_capacities(location: Location, new_uom_capacities: List[UoMCapacity]) -> Location:
-    return location_factory(
-        location=location,
-        new_uom_capacities=new_uom_capacities
-    )
 
-def remove_uom_capacities(location: Location, removed_uom_capacities: List[UoMCapacity]) -> Location:
-    return location_factory(
+def adjust_location(location: Location,
+                    new_resource_limitations: List[Resource] = None,
+                    removed_resource_limitations: List[Resource] = None,
+                    added_uom_capacities: List[UoMCapacity] = None,
+                    removed_uom_capacities: List[UoMCapacity] = None
+                    ) -> Location:
+    new_loc = location_factory(
         location=location,
+        new_resource_limitations=new_resource_limitations,
+        removed_resource_limitations=removed_resource_limitations,
+        new_uom_capacities=added_uom_capacities,
         removed_uom_capacities=removed_uom_capacities
     )
 
-def add_resource_limitations(location: Location, new_resource_limitations: List[Resource]) -> Location:
-    new_loc = location_factory(
-        location=location,
-        new_resource_limitations=new_resource_limitations
-    )
+    log_txt = f"{location} updated with"
+    if new_resource_limitations: log_txt += f"\n\tadded resource limitations: {new_resource_limitations}"
+    if removed_resource_limitations: log_txt += f"\n\tremoved resource limitations: {removed_resource_limitations}"
+    if added_uom_capacities: log_txt += f"\n\tadded uom capacities: {added_uom_capacities}"
+    if removed_uom_capacities: log_txt += f"\n\tremoved uom capacities: {removed_uom_capacities}"
+    log_txt += f"\n\tyielding {new_loc}"
 
-    logger.info(f"{location} updated with new resource constraints {new_resource_limitations} from {location} yielding {new_loc}")
+    logger.info(log_txt)
 
     return new_loc
-
-def remove_resource_limitations(location: Location, removed_resource_limitations: List[Resource]) -> Location:
-    return location_factory(
-        location=location,
-        removed_resource_limitations=removed_resource_limitations
-    )

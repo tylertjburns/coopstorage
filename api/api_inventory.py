@@ -41,7 +41,7 @@ class Api_Inventory(Resource):
         return content, loc
 
     def get(self):
-        return {'data': self.inv.state.as_dict()}, 200
+        return {DATA_HEADER: self.inv.state.as_dict()}, 200
 
     def post(self):
         content, loc = self._resolve_args()
@@ -53,7 +53,7 @@ class Api_Inventory(Resource):
 
             return self.inv.state.as_dict(), 200
         except Exception as e:
-            return {'message': str(e)}, 400
+            return {ERROR_HEADER: str(e)}, 400
 
     def delete(self):
         content, loc = self._resolve_args()
@@ -66,4 +66,4 @@ class Api_Inventory(Resource):
 
             return self.inv.state.as_dict(), 200
         except Exception as e:
-            return {'message': str(e)}, 400
+            return {ERROR_HEADER: str(e)}, 400

@@ -1,4 +1,4 @@
-from coopstorage.my_dataclasses import Content, Location, StorageState, storage_state_factory, location_prioritizer, Resource, loc_inv_state_factory
+from coopstorage.my_dataclasses import Content, Location, StorageState, storage_state_factory, location_prioritizer, Resource, loc_inv_state_factory, UoMCapacity
 import coopstorage.storage.loc_inv_state_mutations as lism
 import coopstorage.storage.loc_state_mutations as lsm
 from coopstorage.logger import logger
@@ -64,8 +64,20 @@ def remove_locations(state: StorageState, locations: List[Location]) -> StorageS
     logger.info(f"{locations} removed from {state} yielding {new_state}")
     return new_state
 
-def add_resource_constraints_to_location(state: StorageState, location: Location, resources: List[Resource]) -> StorageState:
-    new_loc = lsm.add_resource_limitations(location=location, new_resource_limitations=resources)
+def adjust_location(state: StorageState,
+                    location: Location,
+                    added_resources: List[Resource] = None,
+                    removed_resources: List[Resource] = None,
+                    added_uom_capacities: List[UoMCapacity] = None,
+                    removed_uom_capacities: List[UoMCapacity] = None
+                    ) -> StorageState:
+    new_loc = lsm.adjust_location(location=location,
+                                  new_resource_limitations=added_resources,
+                                  removed_resource_limitations=removed_resources,
+                                  added_uom_capacities=added_uom_capacities,
+                                  removed_uom_capacities=removed_uom_capacities
+                                  )
+
     new_loc_inv_state = loc_inv_state_factory(
         loc_inv_state=state.LocInvStateByLocation[new_loc],
         location=new_loc
@@ -77,3 +89,5 @@ def add_resource_constraints_to_location(state: StorageState, location: Location
     )
 
     return new_storage_state
+
+

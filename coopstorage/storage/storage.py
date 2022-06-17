@@ -1,5 +1,5 @@
 import uuid
-from coopstorage.my_dataclasses import Location, Content, content_factory, Resource, StorageState, loc_inv_state_factory, location_prioritizer
+from coopstorage.my_dataclasses import Location, Content, content_factory, Resource, StorageState, loc_inv_state_factory, location_prioritizer, UoMCapacity
 import coopstorage.storage.storage_state_mutations as ssm
 from typing import List, Union
 import threading
@@ -68,12 +68,21 @@ class Storage:
         with self._lock:
             self.state=ssm.remove_locations(state=self.state, locations=locations)
 
-    def add_resource_limitations_to_location(self, location: Location, resources: List[Resource]) -> Location:
+    def adjust_location(self,
+                        location: Location,
+                        added_resources: List[Resource]=None,
+                        removed_resources: List[Resource]=None,
+                        added_uom_capacities: List[UoMCapacity]=None,
+                        removed_uom_capacities: List[UoMCapacity]=None
+                        ) -> Location:
         with self._lock:
-            self.state=ssm.add_resource_constraints_to_location(
+            self.state=ssm.adjust_location(
                 state=self.state,
                 location=location,
-                resources=resources
+                added_resources=added_resources,
+                removed_resources=removed_resources,
+                added_uom_capacities=added_uom_capacities,
+                removed_uom_capacities=removed_uom_capacities
             )
 
             return self.location_by_id(location.id)

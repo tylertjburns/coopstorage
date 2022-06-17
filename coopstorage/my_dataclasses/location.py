@@ -45,7 +45,8 @@ def location_factory(location: Location = None,
                     (location.uom_capacities if location else None) or frozenset()
 
     if new_uom_capacities:
-        uom_capacities = frozenset(list(uom_capacities) + new_uom_capacities)
+        existing = [x for x in list(uom_capacities) if x.uom not in [u.uom for u in new_uom_capacities]]
+        uom_capacities = frozenset(existing + new_uom_capacities)
 
     if removed_uom_capacities:
         uom_capacities = set(uom_capacities)
