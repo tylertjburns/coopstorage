@@ -1,7 +1,7 @@
 from api.constants import *
 from flask_restful import Resource, reqparse
 from coopstorage.my_dataclasses import content_factory, Content, Location, resourceUom_factory
-import tests.uom_manifest as uoms
+import coopstorage.uom_manifest as uoms
 from typing import Tuple
 from functools import partial
 import coopstorage.location_search_prioritizers as lprios

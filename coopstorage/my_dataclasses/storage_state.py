@@ -131,9 +131,9 @@ class StorageState:
 
         return matches
 
-    def space_for_resource_uom(self,
-                               resource_uoms: List[ResourceUoM],
-                               only_designated: bool = True) -> Dict[ResourceUoM, float]:
+    def space_for_resource_uoms(self,
+                                resource_uoms: List[ResourceUoM],
+                                only_designated: bool = True) -> Dict[ResourceUoM, float]:
         if not only_designated:
             raise NotImplementedError()
 
@@ -143,6 +143,22 @@ class StorageState:
             available_space = sum(
                 [space for loc, space in self.space_at_locations(locations=[x.location for x in loc_states], uom=resource_uom.uom).items()])
             ret[resource_uom] = available_space
+        return ret
+
+    def capacity_for_resource_uoms(self,
+                                   resource_uoms: List[ResourceUoM],
+                                   only_designated: bool = True) -> Dict[ResourceUoM, float]:
+        if not only_designated:
+            raise NotImplementedError()
+
+        ret = {}
+        for resource_uom in resource_uoms:
+            loc_states = self.loc_state_matches(loc_resource_limits=[resource_uom.resource])
+            capacity = sum(
+                [loc_state.location.UoMCapacities[resource_uom.uom] for loc_state in loc_states]
+            )
+
+            ret[resource_uom] = capacity
         return ret
 
     def find_location_with_content(self,
@@ -176,7 +192,7 @@ class StorageState:
         # raise if no matches have space
         if len(matches) == 0:
             raise NoLocationWithCapacityException(content=content,
-                                                  resource_uom_space=self.space_for_resource_uom(
+                                                  resource_uom_space=self.space_for_resource_uoms(
                                                       resource_uoms=[content.resourceUoM])[content.resourceUoM],
                                                   loc_uom_space_avail=self.space_at_locations(uom=content.uom),
                                                   loc_states=self.loc_states,

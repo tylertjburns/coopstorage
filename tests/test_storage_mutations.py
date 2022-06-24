@@ -1,7 +1,7 @@
 import unittest
 import coopstorage.storage.storage_state_mutations as ssm
-from coopstorage.my_dataclasses import StorageState, LocInvState, Location, UoM, UoMCapacity, storage_state_factory, loc_inv_state_factory, content_factory
-import tests.uom_manifest as uoms
+from coopstorage.my_dataclasses import StorageState, UoMCapacity, loc_inv_state_factory, content_factory
+import coopstorage.uom_manifest as uoms
 import tests.sku_manifest as skus
 from coopstorage.exceptions import *
 

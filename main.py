@@ -1,6 +1,6 @@
-from coopstorage.my_dataclasses import ResourceUoM, UoMCapacity, location_factory, content_factory, Content, location_generation, Location
+from coopstorage.my_dataclasses import ResourceUoM, UoMCapacity, content_factory, Content, location_generation, Location
 from coopstorage.storage import Storage
-import tests.uom_manifest as uoms
+import coopstorage.uom_manifest as uoms
 import tests.sku_manifest as skus
 import pprint
 import coopstorage.location_search_prioritizers as lprios

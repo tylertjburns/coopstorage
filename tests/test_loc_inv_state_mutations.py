@@ -1,8 +1,8 @@
 import unittest
-from coopstorage.my_dataclasses import LocInvState, Location, Content, ResourceUoM, Resource, UoM, UoMCapacity, content_factory, loc_inv_state_factory
+from coopstorage.my_dataclasses import LocInvState, Location, Content, ResourceUoM, UoMCapacity, content_factory, loc_inv_state_factory
 import coopstorage.storage.loc_inv_state_mutations as lism
 import tests.sku_manifest as skus
-import tests.uom_manifest as uoms
+import coopstorage.uom_manifest as uoms
 from coopstorage.exceptions import *
 
 class TestLocInvStateMutations(unittest.TestCase):
@@ -23,7 +23,7 @@ class TestLocInvStateMutations(unittest.TestCase):
 
     def test__create_state__with_des(self):
         # arrange
-        test_loc = Location(id='Test', uom_capacities=frozenset([x for x in uoms.uoms]))
+        test_loc = Location(id='Test', uom_capacities=frozenset([x for x in uoms.manifest]))
 
         # act
         state = LocInvState(

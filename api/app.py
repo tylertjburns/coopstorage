@@ -2,7 +2,7 @@ from flask import Flask
 from flask_restful import Api
 from coopstorage.storage import Storage
 from coopstorage.my_dataclasses import UoMCapacity, location_generation, Location
-import tests.uom_manifest as uoms
+import coopstorage.uom_manifest as uoms
 from api.api_locations import Api_Locations
 from api.api_inventory import Api_Inventory
 from api.api_resourceUomManifest import Api_ResourceUoMManifest
