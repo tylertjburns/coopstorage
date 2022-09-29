@@ -37,7 +37,7 @@ class Storage:
 
             self.state = ssm.add_content(
                storage_state=self.state,
-               content=content,
+               to_add=content,
                location=location,
                loc_prioritizer=loc_prioritizer
             )
@@ -50,7 +50,7 @@ class Storage:
         with self._lock:
             self.state = ssm.remove_content(
                 storage_state=self.state,
-                content=content,
+                to_remove=content,
                 location=location,
                 loc_prioritizer=loc_prioritizer
             )

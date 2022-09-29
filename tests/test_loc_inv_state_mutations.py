@@ -1,9 +1,10 @@
 import unittest
 from coopstorage.my_dataclasses import LocInvState, Location, Content, ResourceUoM, UoMCapacity, content_factory, loc_inv_state_factory
-import coopstorage.storage.loc_inv_state_mutations as lism
+import coopstorage as ssm
 import tests.sku_manifest as skus
 import coopstorage.uom_manifest as uoms
 from coopstorage.exceptions import *
+from coopstorage.enums import ChannelType
 
 class TestLocInvStateMutations(unittest.TestCase):
 
@@ -52,7 +53,7 @@ class TestLocInvStateMutations(unittest.TestCase):
 
         # assert
         self.assertEqual(state.location,test_loc)
-        self.assertEqual(len(state.contents), 1)
+        self.assertEqual(len(state.containers), 1)
         self.assertEqual(state.qty_resource_uom(resource_uom=ru), qty)
         self.assertEqual(state.ActiveUoMDesignations, [uoms.each])
 
@@ -65,10 +66,10 @@ class TestLocInvStateMutations(unittest.TestCase):
         new_content = content_factory(resource=skus.sku_a, qty=qty/2, uom=uoms.each)
 
         # act
-        new = lism.add_content_to_loc(inv_state=state, content=new_content)
+        new = ssm.add_content_to_loc(inv_state=state, content=new_content)
 
         # assert
-        self.assertEqual(len(new.contents), len(state.contents))
+        self.assertEqual(len(new.containers), len(state.containers))
         self.assertEqual(new.qty_resource_uom(new_content.resourceUoM), state.qty_resource_uom(new_content.resourceUoM) + new_content.qty)
 
     def test__mutate_state__add_content_same_ru__will_not_fit(self):
@@ -79,7 +80,7 @@ class TestLocInvStateMutations(unittest.TestCase):
         new_content = content_factory(resource=skus.sku_a, qty=qty, uom=uoms.each)
 
         # act
-        actor = lambda: lism.add_content_to_loc(inv_state=state, content=new_content)
+        actor = lambda: ssm.add_content_to_loc(inv_state=state, content=new_content)
 
         # assert
         self.assertRaises(NoRoomAtLocationException, actor)
@@ -92,21 +93,41 @@ class TestLocInvStateMutations(unittest.TestCase):
         new_content = content_factory(resource=skus.sku_b, qty=qty/2, uom=uoms.each)
 
         # act
-        new = lism.add_content_to_loc(inv_state=state, content=new_content)
+        new = ssm.add_content_to_loc(inv_state=state, content=new_content)
 
         # assert
-        self.assertEqual(len(new.contents), len(state.contents) + 1)
+        self.assertEqual(len(new.containers), len(state.containers) + 1)
         self.assertEqual(new.qty_resource_uom(new_content.resourceUoM), state.qty_resource_uom(new_content.resourceUoM) + new_content.qty)
 
     def test__mutate_state__add_content_diff_ru__will_not_fit(self):
         #arrange
         qty=20
         state = loc_inv_state_factory(loc_uom_capacities=frozenset([UoMCapacity(uoms.each, qty)]),
-                                      contents=frozenset([content_factory(resource=skus.sku_a, qty=qty/2, uom=uoms.each)]),)
+                                      contents=frozenset([content_factory(resource=skus.sku_a, qty=qty/2, uom=uoms.each)]))
         new_content = content_factory(resource=skus.sku_b, qty=qty, uom=uoms.each)
 
         # act
-        actor = lambda: lism.add_content_to_loc(inv_state=state, content=new_content)
+        actor = lambda: ssm.add_content_to_loc(inv_state=state, content=new_content)
 
         # assert
         self.assertRaises(NoRoomAtLocationException, actor)
+
+    def test__FIFO__not_extractable(self):
+        # arrange
+        capacity = 3
+        cont_a = content_factory(resource=skus.sku_a, qty=1, uom=uoms.each)
+        cont_b = content_factory(resource=skus.sku_a, qty=1, uom=uoms.each)
+        state = loc_inv_state_factory(loc_uom_capacities=frozenset([UoMCapacity(uoms.each, capacity)]),
+                                      contents=frozenset(
+                                          [cont_a, cont_b]),
+                                      location_channel_type=ChannelType.CONTAINER_FIFO_QUEUE
+        )
+
+        # act
+        actor = lambda: ssm.remove_content_from_location(inv_state=state, content=cont_b)
+
+        # assert
+        self.assertRaises(ContentNotInExtractablePositionException, actor)
+
+
+

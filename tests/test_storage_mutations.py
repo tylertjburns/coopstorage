@@ -1,5 +1,5 @@
 import unittest
-import coopstorage.storage.storage_state_mutations as ssm
+import coopstorage as ssm
 from coopstorage.my_dataclasses import StorageState, UoMCapacity, loc_inv_state_factory, content_factory
 import coopstorage.uom_manifest as uoms
 import tests.sku_manifest as skus
@@ -39,7 +39,7 @@ class Test_StorageStateMutations(unittest.TestCase):
 
 
         # act
-        new = ssm.add_content(storage_state=state, content=content)
+        new = ssm.add_content(storage_state=state, to_add=content)
 
         #assert
         self.assertEqual(new.qty_of_resource_uoms([content.resourceUoM])[content.resourceUoM], qty_to_add)
@@ -59,7 +59,7 @@ class Test_StorageStateMutations(unittest.TestCase):
 
 
         # act
-        actor = lambda: ssm.add_content(storage_state=state, content=content)
+        actor = lambda: ssm.add_content(storage_state=state, to_add=content)
 
         #assert
         self.assertRaises(NoLocationWithCapacityException, actor)
@@ -76,10 +76,10 @@ class Test_StorageStateMutations(unittest.TestCase):
             loc_states=loc_inv_states
         )
         content = content_factory(resource=skus.sku_a, uom=uoms.each, qty=qty_to_add)
-        new = ssm.add_content(storage_state=state, content=content)
+        new = ssm.add_content(storage_state=state, to_add=content)
 
         # act
-        new2 = ssm.add_content(storage_state=new, content=content)
+        new2 = ssm.add_content(storage_state=new, to_add=content)
 
         #assert
         self.assertEqual(new2.qty_of_resource_uoms([content.resourceUoM])[content.resourceUoM], qty_to_add * 2)
@@ -99,11 +99,11 @@ class Test_StorageStateMutations(unittest.TestCase):
         content = content_factory(resource=skus.sku_a, uom=uoms.each, qty=qty_to_add)
         to_remove = content_factory(resource=skus.sku_a, uom=uoms.each, qty=qty_to_remove)
 
-        new = ssm.add_content(storage_state=state, content=content)
-        new = ssm.add_content(storage_state=new, content=content)
+        new = ssm.add_content(storage_state=state, to_add=content)
+        new = ssm.add_content(storage_state=new, to_add=content)
 
         # act
-        post = ssm.remove_content(storage_state=new, content=to_remove)
+        post = ssm.remove_content(storage_state=new, to_remove=to_remove)
 
         #assert
         self.assertEqual(post.qty_of_resource_uoms([content.resourceUoM])[content.resourceUoM], qty_to_add * 2 - qty_to_remove)
@@ -123,11 +123,11 @@ class Test_StorageStateMutations(unittest.TestCase):
         content = content_factory(resource=skus.sku_a, uom=uoms.each, qty=qty_to_add)
         to_remove = content_factory(resource=skus.sku_a, uom=uoms.each, qty=qty_to_remove)
 
-        new = ssm.add_content(storage_state=state, content=content)
-        new = ssm.add_content(storage_state=new, content=content)
+        new = ssm.add_content(storage_state=state, to_add=content)
+        new = ssm.add_content(storage_state=new, to_add=content)
 
         # act
-        actor = lambda: ssm.remove_content(storage_state=new, content=to_remove)
+        actor = lambda: ssm.remove_content(storage_state=new, to_remove=to_remove)
 
         #assert
         self.assertRaises(NoLocationToRemoveContentException, actor)

@@ -1,16 +1,19 @@
 from dataclasses import dataclass, field
-from coopstorage.my_dataclasses import UoMCapacity, Resource, UoM
-from typing import Dict, Optional, List, Union
+from coopstorage.my_dataclasses import UoMCapacity, Resource, UoM, Container, container_factory, Content
+from typing import Dict, Optional, List, Union, Tuple
 import uuid
 from coopstorage.resolvers import try_resolve_guid
-
+from coopstorage.enums import ChannelType
 
 @dataclass(frozen=True, slots=True)
 class Location:
+    container: Container
     uom_capacities: frozenset[UoMCapacity] = field(default_factory=frozenset)
     #TODO: Change this to a whitelist/blacklist set of lists
     resource_limitations: frozenset[Resource] = field(default_factory=frozenset)
     id: Optional[Union[str, uuid.UUID]] = None
+    coords: Tuple[float, ...] = None
+    channel_type: ChannelType = ChannelType.CONTAINER_ALL_ACCESSIBLE
 
     def __post_init__(self):
         if self.id is None: object.__setattr__(self, 'id', uuid.uuid4())
@@ -23,22 +26,26 @@ class Location:
 
     @property
     def UoMCapacities(self) -> Dict[UoM, float]:
-        return {x.uom: x.capacity for x in self.uom_capacities}
+        return {x.uom: x.capacity for x in self.container.uom_capacities}
 
     def as_dict(self):
         return {
             'id': str(self.id),
-            'uom_capacities': [x.as_dict() for x in self.uom_capacities],
+            'uom_capacities': [x.as_dict() for x in self.UoMCapacities],
             'resource_limitations': [x.as_dict() for x in self.resource_limitations]
         }
 
 def location_factory(location: Location = None,
+                     container: Container = None,
                      uom_capacities: frozenset[UoMCapacity] = None,
+                     contents: List[Content] = None,
                      new_uom_capacities: List[UoMCapacity] = None,
                      removed_uom_capacities: List[UoMCapacity] = None,
                      resource_limitations: frozenset[Resource] = None,
                      new_resource_limitations: List[Resource] = None,
                      removed_resource_limitations: List[Resource] = None,
+                     channel_type: ChannelType = None,
+                     coords: Tuple[float, ...] = None,
                      id: Union[str, uuid.UUID] = None) -> Location:
 
     uom_capacities = uom_capacities if uom_capacities is not None else \
@@ -66,10 +73,25 @@ def location_factory(location: Location = None,
 
     id = try_resolve_guid(id) or (location.id if location else None) or uuid.uuid4()
 
+    _container = container or \
+                 (location.container if location else None) or \
+                 container_factory(lpn=f"{id}_CONTAINER",
+                                   uom=UoM("LocationContainer"),
+                                   uom_capacities=uom_capacities,
+                                   contents=contents
+                                   )
+
+
+    channel_type = channel_type or (location.channel_type if location else None) or ChannelType.CONTAINER_ALL_ACCESSIBLE
+
+    coords = coords or (location.coords if location else None)
+
     return Location(
-        uom_capacities=uom_capacities,
+        container=_container,
         resource_limitations=resource_limitations,
-        id=id
+        id=id,
+        channel_type=channel_type,
+        coords=coords
     )
 
 def location_generation(

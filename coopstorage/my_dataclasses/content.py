@@ -21,13 +21,13 @@ class Content:
             raise ValueError(f"qty cannot be zero, {self.qty} provided")
 
     def match_resouce_uom(self, content):
-        return content.resource == self.resource and content.uom == self.uom
+        return content.Resource == self.Resource and content.UoM == self.UoM
 
     def __repr__(self):
         return self.__str__()
 
     def __str__(self):
-        return f"C({self.resource.name}, {self.uom.name}, {self.qty})"
+        return f"C({self.Resource.name}, {self.UoM.name}, {self.qty}) [{self.id}]"
 
     def as_dict(self):
         return {
@@ -37,16 +37,16 @@ class Content:
         }
 
     @property
-    def resource(self) -> Resource:
+    def Resource(self) -> Resource:
         return self.resourceUoM.resource
 
     @property
-    def uom(self) -> UoM:
+    def UoM(self) -> UoM:
         return self.resourceUoM.uom
 
     @property
     def CapacityRequired(self) -> UoMCapacity:
-        return UoMCapacity(uom=self.uom, capacity=self.qty)
+        return UoMCapacity(uom=self.UoM, capacity=self.qty)
 
 def content_factory(content: Content = None,
                     resource_uom: ResourceUoM = None,
@@ -86,7 +86,7 @@ def content_factory(content: Content = None,
 
     content = Content(
         resourceUoM=resource_uom,
-        qty=qty
+        qty=qty,
     )
 
     return content

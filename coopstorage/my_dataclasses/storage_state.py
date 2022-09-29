@@ -181,8 +181,8 @@ class StorageState:
                                   content: Content,
                                   prioritizer: location_prioritizer = None) -> Location:
         # locs matching required uom and resource limitation
-        matches = self.loc_state_matches(uom_capacities=[content.uom],
-                                         loc_resource_limits=[content.resource],
+        matches = self.loc_state_matches(uom_capacities=[content.UoM],
+                                         loc_resource_limits=[content.Resource],
                                          space_avail_for_uom=content.CapacityRequired)
 
         # # locations with capacity
@@ -194,7 +194,7 @@ class StorageState:
             raise NoLocationWithCapacityException(content=content,
                                                   resource_uom_space=self.space_for_resource_uoms(
                                                       resource_uoms=[content.resourceUoM])[content.resourceUoM],
-                                                  loc_uom_space_avail=self.space_at_locations(uom=content.uom),
+                                                  loc_uom_space_avail=self.space_at_locations(uom=content.UoM),
                                                   loc_states=self.loc_states,
                                                   storage_state=self
                                                   )
@@ -226,7 +226,7 @@ class StorageState:
 
     @property
     def Inventory(self) -> Dict[Location, List[Content]]:
-        return {x.location: list(x.contents) for x in self.loc_states}
+        return {x.location: list(x.containers) for x in self.loc_states}
 
     @property
     def OccupiedLocs(self) -> List[Location]:

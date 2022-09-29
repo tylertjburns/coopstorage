@@ -34,23 +34,23 @@ class NoLocationWithCapacityException(Exception):
     def __str__(self):
         return f"{type(self).__name__}"
 
-class ContentDoesntMatchLocationException(Exception):
-    def __init__(self, location, content):
-        cevents.raise_event(event=cevents.ProductionEventType.EXCEPTION_CONTENT_DOESNT_MATCH_LOCATION,
-                            args=cevents.OnContentDoesntMatchLocationExceptionEventArgs(
+class UoMDoesntMatchLocationDefinitionException(Exception):
+    def __init__(self, location, uom):
+        cevents.raise_event(event=cevents.StorageEventType.EXCEPTION_UOM_DOESNT_MATCH_LOCATION_DEFINITION,
+                            args=cevents.OnUoMDoesntMatchLocationDefinitionExceptionEventArgs(
                                 location=location,
-                                content=content
+                                uom=uom
                             )
-        )
+                            )
         super().__init__(str(self))
 
     def __str__(self):
         return f"{type(self).__name__}"
 
-class ContentDoesntMatchLocationActiveDesignationException(Exception):
-    def __init__(self, content, loc_inv):
-        cevents.raise_event_ContentDoesntMatchLocationDesignationException(cevents.OnContentDoesntMatchLocationActiveDesignationExceptionEventArgs(
-            content=content,
+class UoMDoesntMatchLocationActiveDesignationException(Exception):
+    def __init__(self, uom, loc_inv):
+        cevents.raise_event_UoMDoesntMatchLocationDesignationException(cevents.OnUoMDoesntMatchLocationActiveDesignationExceptionEventArgs(
+            uom=uom,
             loc_inv=loc_inv
         ))
         super().__init__(str(self))
@@ -78,6 +78,19 @@ class MissingContentException(Exception):
     def __str__(self):
         return f"{type(self).__name__}"
 
+
+class ContentNotInExtractablePositionException(Exception):
+    def __init__(self, loc_inv):
+        cevents.raise_event_MissingContentException(cevents.OnMissingContentExceptionEventArgs(
+            loc_inv=loc_inv
+        ))
+        super().__init__(str(self))
+
+    def __str__(self):
+        return f"{type(self).__name__}"
+
+
+
 class NoLocationToRemoveContentException(Exception):
     def __init__(self, content, storage_state):
         self.content=content
@@ -99,3 +112,16 @@ class ResourceUoMNotInManifestException(Exception):
 
     def __str__(self):
         return f"{type(self).__name__} {self.resourceUoM} not in manifest: {self.manifest}"
+
+
+class LocationDoesNotSupportAddingContentException(Exception):
+    def __init__(self, location):
+        self.location = location
+        cevents.raise_event_LocationDoesNotSupportAddingContentException(
+            cevents.OnLocationDoesNotSupportAddingContentExceptionEventArgs(
+                location=location
+        ))
+        super().__init__(str(self))
+
+    def __str__(self):
+        return f"{type(self).__name__} {self.location} does not support adding content"

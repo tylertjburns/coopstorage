@@ -9,3 +9,15 @@ sku_f = Resource(name='f', description='fff', type=ResourceType.DEFAULT)
 sku_g = Resource(name='g', description='ggg', type=ResourceType.DEFAULT)
 raw_1 = Resource(name='h', description='hhh', type=ResourceType.DEFAULT)
 raw_2 = Resource(name='i', description='iii', type=ResourceType.DEFAULT)
+
+manifest = [
+    sku_a,
+    sku_b,
+    sku_c,
+    sku_d,
+    sku_e,
+    sku_f,
+    sku_g,
+    raw_1,
+    raw_2
+]
