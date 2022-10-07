@@ -1,22 +1,24 @@
 from dataclasses import dataclass, field
-from coopstorage.my_dataclasses import UoMCapacity, Resource, UoM, Container, container_factory, Content
+from coopstorage.my_dataclasses import UoMCapacity, Resource, UnitOfMeasure, ContainerState, container_factory, Content
 from typing import Dict, Optional, List, Union, Tuple
 import uuid
 from coopstorage.resolvers import try_resolve_guid
 from coopstorage.enums import ChannelType
+from coopstorage.constants import *
 
 @dataclass(frozen=True, slots=True)
 class Location:
-    container: Container
     uom_capacities: frozenset[UoMCapacity] = field(default_factory=frozenset)
     #TODO: Change this to a whitelist/blacklist set of lists
     resource_limitations: frozenset[Resource] = field(default_factory=frozenset)
     id: Optional[Union[str, uuid.UUID]] = None
     coords: Tuple[float, ...] = None
-    channel_type: ChannelType = ChannelType.CONTAINER_ALL_ACCESSIBLE
+    channel_type: ChannelType = ChannelType.ALL_ACCESSIBLE
+    max_resources_uoms: int = 1
 
     def __post_init__(self):
-        if self.id is None: object.__setattr__(self, 'id', uuid.uuid4())
+        if self.id is None:
+            object.__setattr__(self, f'{self.id=}'.split('=')[0].replace('self.', ''), uuid.uuid4())
 
     def __hash__(self):
         return hash(self.id)
@@ -25,20 +27,21 @@ class Location:
         return hash(self) == hash(other)
 
     @property
-    def UoMCapacities(self) -> Dict[UoM, float]:
-        return {x.uom: x.capacity for x in self.container.uom_capacities}
+    def UoMCapacities(self) -> Dict[UnitOfMeasure, float]:
+        return {x.uom: x.capacity for x in self.uom_capacities}
 
     def as_dict(self):
         return {
-            'id': str(self.id),
-            'uom_capacities': [x.as_dict() for x in self.UoMCapacities],
-            'resource_limitations': [x.as_dict() for x in self.resource_limitations]
+            f'{self.id=}'.split('=')[0].replace('self.', ''): str(self.id),
+            f'{self.uom_capacities=}'.split('=')[0].replace('self.', ''): [x.as_dict() for x in self.uom_capacities],
+            f'{self.resource_limitations=}'.split('=')[0].replace('self.', ''): [x.as_dict() for x in self.resource_limitations],
+            f'{self.coords=}'.split('=')[0].replace('self.', ''): str(self.coords),
+            f'{self.channel_type=}'.split('=')[0].replace('self.', ''): str(self.channel_type),
+            f'{self.max_resources_uoms=}'.split('=')[0].replace('self.', ''): str(self.max_resources_uoms),
         }
 
 def location_factory(location: Location = None,
-                     container: Container = None,
                      uom_capacities: frozenset[UoMCapacity] = None,
-                     contents: List[Content] = None,
                      new_uom_capacities: List[UoMCapacity] = None,
                      removed_uom_capacities: List[UoMCapacity] = None,
                      resource_limitations: frozenset[Resource] = None,
@@ -73,22 +76,13 @@ def location_factory(location: Location = None,
 
     id = try_resolve_guid(id) or (location.id if location else None) or uuid.uuid4()
 
-    _container = container or \
-                 (location.container if location else None) or \
-                 container_factory(lpn=f"{id}_CONTAINER",
-                                   uom=UoM("LocationContainer"),
-                                   uom_capacities=uom_capacities,
-                                   contents=contents
-                                   )
-
-
-    channel_type = channel_type or (location.channel_type if location else None) or ChannelType.CONTAINER_ALL_ACCESSIBLE
+    channel_type = channel_type or (location.channel_type if location else None) or ChannelType.ALL_ACCESSIBLE
 
     coords = coords or (location.coords if location else None)
 
     return Location(
-        container=_container,
         resource_limitations=resource_limitations,
+        uom_capacities=uom_capacities,
         id=id,
         channel_type=channel_type,
         coords=coords

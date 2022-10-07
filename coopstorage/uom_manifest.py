@@ -1,11 +1,11 @@
-from coopstorage.my_dataclasses import UoM
+from coopstorage.my_dataclasses import UnitOfMeasure
 
-each = UoM(name='EACH', each_qty=1)
-box = UoM(name='BOX')
-pallet = UoM(name='PALLET')
-bottle = UoM(name='BOTTLE')
-reel = UoM(name='REEl')
-spool = UoM(name='SPOOL')
+each = UnitOfMeasure(name='EACH', each_qty=1)
+box = UnitOfMeasure(name='BOX')
+pallet = UnitOfMeasure(name='PALLET')
+bottle = UnitOfMeasure(name='BOTTLE')
+reel = UnitOfMeasure(name='REEl')
+spool = UnitOfMeasure(name='SPOOL')
 
 
 manifest = [

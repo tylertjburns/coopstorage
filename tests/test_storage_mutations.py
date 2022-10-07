@@ -1,9 +1,11 @@
 import unittest
 import coopstorage as ssm
 from coopstorage.my_dataclasses import StorageState, UoMCapacity, loc_inv_state_factory, content_factory
+from coopstorage.enums import ChannelType
 import coopstorage.uom_manifest as uoms
 import tests.sku_manifest as skus
 from coopstorage.exceptions import *
+from coopstorage.eventDefinition import StorageEventType, StorageException
 
 class Test_StorageStateMutations(unittest.TestCase):
 
@@ -30,7 +32,8 @@ class Test_StorageStateMutations(unittest.TestCase):
         qty_capacity = 10
         qty_to_add = 1
         loc_inv_states = frozenset([loc_inv_state_factory(
-            loc_uom_capacities=frozenset([UoMCapacity(uom=uoms.each, capacity=qty_capacity)])) for x in range(n_locs)])
+            loc_uom_capacities=frozenset([UoMCapacity(uom=uoms.each, capacity=qty_capacity)]),
+            location_channel_type=ChannelType.MERGED_CONTENT) for x in range(n_locs)])
 
         state = StorageState(
             loc_states=loc_inv_states
@@ -50,7 +53,8 @@ class Test_StorageStateMutations(unittest.TestCase):
         qty_capacity = 10
         qty_to_add = 15
         loc_inv_states = frozenset([loc_inv_state_factory(
-            loc_uom_capacities=frozenset([UoMCapacity(uom=uoms.each, capacity=qty_capacity)])) for x in range(n_locs)])
+            loc_uom_capacities=frozenset([UoMCapacity(uom=uoms.each, capacity=qty_capacity)]),
+            location_channel_type=ChannelType.MERGED_CONTENT) for x in range(n_locs)])
 
         state = StorageState(
             loc_states=loc_inv_states
@@ -62,15 +66,19 @@ class Test_StorageStateMutations(unittest.TestCase):
         actor = lambda: ssm.add_content(storage_state=state, to_add=content)
 
         #assert
-        self.assertRaises(NoLocationWithCapacityException, actor)
+        try:
+            actor()
+        except StorageException as e:
+            self.assertEquals(e.user_args.event_type, StorageEventType.EXCEPTION_NO_LOCATION_WITH_CAPACITY_FOUND)
 
     def test__add_content__multiple_adds(self):
         # arrange
         n_locs = 5
-        qty_capacity = 10
+        qty_capacity = 20
         qty_to_add = 7
         loc_inv_states = frozenset([loc_inv_state_factory(
-            loc_uom_capacities=frozenset([UoMCapacity(uom=uoms.each, capacity=qty_capacity)])) for x in range(n_locs)])
+            loc_uom_capacities=frozenset([UoMCapacity(uom=uoms.each, capacity=qty_capacity)]),
+            location_channel_type=ChannelType.MERGED_CONTENT) for x in range(n_locs)])
 
         state = StorageState(
             loc_states=loc_inv_states
@@ -87,11 +95,13 @@ class Test_StorageStateMutations(unittest.TestCase):
     def test__remove_content(self):
         # arrange
         n_locs = 5
-        qty_capacity = 10
+        qty_capacity = 20
         qty_to_add = 7
         qty_to_remove = 3
         loc_inv_states = frozenset([loc_inv_state_factory(
-            loc_uom_capacities=frozenset([UoMCapacity(uom=uoms.each, capacity=qty_capacity)])) for x in range(n_locs)])
+            loc_uom_capacities=frozenset([UoMCapacity(uom=uoms.each, capacity=qty_capacity)]),
+            location_channel_type=ChannelType.MERGED_CONTENT
+        ) for x in range(n_locs)])
 
         state = StorageState(
             loc_states=loc_inv_states
@@ -111,11 +121,13 @@ class Test_StorageStateMutations(unittest.TestCase):
     def test__remove_content__no_single_location(self):
         # arrange
         n_locs = 5
-        qty_capacity = 10
+        qty_capacity = 20
         qty_to_add = 7
         qty_to_remove = 8
         loc_inv_states = frozenset([loc_inv_state_factory(
-            loc_uom_capacities=frozenset([UoMCapacity(uom=uoms.each, capacity=qty_capacity)])) for x in range(n_locs)])
+            loc_uom_capacities=frozenset([UoMCapacity(uom=uoms.each, capacity=qty_capacity)]),
+            location_channel_type=ChannelType.MERGED_CONTENT
+        ) for x in range(n_locs)])
 
         state = StorageState(
             loc_states=loc_inv_states
@@ -130,6 +142,9 @@ class Test_StorageStateMutations(unittest.TestCase):
         actor = lambda: ssm.remove_content(storage_state=new, to_remove=to_remove)
 
         #assert
-        self.assertRaises(NoLocationToRemoveContentException, actor)
+        try:
+            actor()
+        except StorageException as e:
+            self.assertEquals(e.user_args.event_type, StorageEventType.EXCEPTION_NO_LOCATION_TO_REMOVE_CONTENT)
 
 

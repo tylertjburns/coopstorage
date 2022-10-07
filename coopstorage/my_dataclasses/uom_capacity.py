@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-from coopstorage.my_dataclasses import UoM
+from coopstorage.my_dataclasses import UnitOfMeasure
 
 
 @dataclass(frozen=True, slots=True)
 class UoMCapacity:
-    uom: UoM
+    uom: UnitOfMeasure
     capacity: float
 
     def as_dict(self):

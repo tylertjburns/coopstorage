@@ -1,11 +1,11 @@
 from dataclasses import dataclass
-from coopstorage.my_dataclasses import Resource, UoM, resource_factory, uom_factory, ResourceType
+from coopstorage.my_dataclasses import Resource, UnitOfMeasure, resource_factory, uom_factory, ResourceType
 
 
 @dataclass(frozen=True, slots=True)
 class ResourceUoM:
     resource: Resource
-    uom: UoM
+    uom: UnitOfMeasure
 
     def as_dict(self):
         return {
@@ -18,7 +18,7 @@ def resourceUom_factory(resource_uom: ResourceUoM = None,
                         resource_name: str = None,
                         resource_description: str = None,
                         resource_type: ResourceType = None,
-                        uom: UoM = None,
+                        uom: UnitOfMeasure = None,
                         uom_name: str = None) -> ResourceUoM:
     resource = resource or \
                (resource_uom.resource if resource_uom is not None else None) or \

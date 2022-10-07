@@ -23,7 +23,7 @@ class Storage:
         return f"id: {self._id}, Locs: {len(self.state.Inventory)}, occupied: {len(self.state.OccupiedLocs)}, empty: {len(self.state.EmptyLocs)}"
 
     def print(self):
-        pprint.pprint(self.state.Inventory)
+        self.state.print()
 
     def add_content(self,
                     content: Content,

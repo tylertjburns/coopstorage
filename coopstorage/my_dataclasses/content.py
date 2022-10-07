@@ -1,6 +1,6 @@
 import uuid
 from dataclasses import dataclass, field
-from coopstorage.my_dataclasses import Resource, ResourceUoM, ResourceType, UoM, resourceUom_factory, resource_factory, uom_factory, UoMCapacity
+from coopstorage.my_dataclasses import Resource, ResourceUoM, ResourceType, UnitOfMeasure, resourceUom_factory, resource_factory, uom_factory, UoMCapacity
 from typing import List, Tuple
 import random as rnd
 
@@ -21,7 +21,7 @@ class Content:
             raise ValueError(f"qty cannot be zero, {self.qty} provided")
 
     def match_resouce_uom(self, content):
-        return content.Resource == self.Resource and content.UoM == self.UoM
+        return content.Resource == self.Resource and content.UnitOfMeasure == self.UoM
 
     def __repr__(self):
         return self.__str__()
@@ -41,7 +41,7 @@ class Content:
         return self.resourceUoM.resource
 
     @property
-    def UoM(self) -> UoM:
+    def UoM(self) -> UnitOfMeasure:
         return self.resourceUoM.uom
 
     @property
@@ -54,7 +54,7 @@ def content_factory(content: Content = None,
                     resource_name: str = None,
                     resource_description: str = None,
                     resource_type: ResourceType = None,
-                    uom: UoM = None,
+                    uom: UnitOfMeasure = None,
                     uom_name: str = None,
                     qty: float = None,
                     rnd_qty_range: Tuple[int, int] = None

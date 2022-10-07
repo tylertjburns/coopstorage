@@ -1,0 +1,1 @@
+LOCATION_CONTAINER_UOM_TYPE_NAME = 'LocationContainer'

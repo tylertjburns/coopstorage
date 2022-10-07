@@ -36,9 +36,11 @@ class Api_Locations(Resource):
 
         # add arguments
         parser.add_argument(LOC_ID_TXT, required=False, location='form')
-
+        parser.add_argument('Authorization', required=False, location='headers')
         # parse arguments to dictionary
         args = parser.parse_args()
+
+        print(args)
         loc_ids_str = args.get(LOC_ID_TXT, None)
         loc_ids = split_strip(loc_ids_str) if loc_ids_str and loc_ids_str != '' else None
 

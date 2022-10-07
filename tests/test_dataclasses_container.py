@@ -1,4 +1,4 @@
-from coopstorage.my_dataclasses import Container, UoM, Content, container_factory
+from coopstorage.my_dataclasses import ContainerState, UnitOfMeasure, Content, container_factory
 import unittest
 import coopstorage.uom_manifest as uoms
 
@@ -9,7 +9,7 @@ class Test_Dataclass_Container(unittest.TestCase):
         uom = uoms.each
 
         # act
-        cnt = Container(
+        cnt = ContainerState(
             lpn=lpn,
             uom=uom
         )
@@ -23,7 +23,7 @@ class Test_Dataclass_Container(unittest.TestCase):
         # arrange
         lpn = "name"
         uom = uoms.each
-        cnt = Container(
+        cnt = ContainerState(
             lpn=lpn,
             uom=uom
         )

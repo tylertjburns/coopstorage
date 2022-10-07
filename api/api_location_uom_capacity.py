@@ -23,7 +23,7 @@ class Api_LocationUoMCapacity(Resource):
 
         # create objs
         loc = md.location_factory(id=args[LOC_ID_TXT])
-        uom_cap = md.UoMCapacity(uom=md.UoM(args[UOM_TXT]), capacity=float(args[QTY_TXT]))
+        uom_cap = md.UoMCapacity(uom=md.UnitOfMeasure(args[UOM_TXT]), capacity=float(args[QTY_TXT]))
 
         return uom_cap, loc
 

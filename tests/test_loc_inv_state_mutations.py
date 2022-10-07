@@ -1,9 +1,9 @@
 import unittest
-from coopstorage.my_dataclasses import LocInvState, Location, Content, ResourceUoM, UoMCapacity, content_factory, loc_inv_state_factory
+from coopstorage.my_dataclasses import LocInvState, Location, Content, ResourceUoM, UoMCapacity, content_factory, loc_inv_state_factory, ContainerState
 import coopstorage as ssm
 import tests.sku_manifest as skus
 import coopstorage.uom_manifest as uoms
-from coopstorage.exceptions import *
+from coopstorage.eventDefinition import StorageException, StorageEventType
 from coopstorage.enums import ChannelType
 
 class TestLocInvStateMutations(unittest.TestCase):
@@ -20,7 +20,6 @@ class TestLocInvStateMutations(unittest.TestCase):
         # assert
         self.assertEqual(state.location,test_loc)
         self.assertEqual(state.location.uom_capacities, frozenset())
-        self.assertEqual(state.ActiveUoMDesignations, [])
 
     def test__create_state__with_des(self):
         # arrange
@@ -33,7 +32,6 @@ class TestLocInvStateMutations(unittest.TestCase):
 
         # assert
         self.assertEqual(state.location,test_loc)
-        self.assertEqual(state.ActiveUoMDesignations, [])
 
     def test__create_state__with_cont(self):
         # arrange
@@ -46,88 +44,157 @@ class TestLocInvStateMutations(unittest.TestCase):
         )
 
         # act
+        container = ContainerState(lpn="dummy", uom=uoms.box, contents=frozenset([content]))
         state = LocInvState(
             location=test_loc,
-            contents=frozenset([content])
+            containers=tuple([container])
         )
 
         # assert
         self.assertEqual(state.location,test_loc)
         self.assertEqual(len(state.containers), 1)
-        self.assertEqual(state.qty_resource_uom(resource_uom=ru), qty)
-        self.assertEqual(state.ActiveUoMDesignations, [uoms.each])
+        self.assertEqual(state.QtyResourceUoMs[ru], qty)
 
     def test__mutate_state__add_content_same_ru__will_fit(self):
         #arrange
         qty=20
-        uom_name = 'Each'
         state = loc_inv_state_factory(loc_uom_capacities=frozenset([UoMCapacity(uoms.each, qty)]),
-                                      contents=frozenset([content_factory(resource=skus.sku_a, qty=qty/2, uom=uoms.each)]),)
+                                      location_channel_type=ChannelType.MERGED_CONTENT)
         new_content = content_factory(resource=skus.sku_a, qty=qty/2, uom=uoms.each)
 
         # act
-        new = ssm.add_content_to_loc(inv_state=state, content=new_content)
+        new = ssm.add_content_to_location(inv_state=state, content=new_content)
 
         # assert
-        self.assertEqual(len(new.containers), len(state.containers))
-        self.assertEqual(new.qty_resource_uom(new_content.resourceUoM), state.qty_resource_uom(new_content.resourceUoM) + new_content.qty)
+        self.assertEqual(new.QtyResourceUoMs[new_content.resourceUoM], state.QtyResourceUoMs.get(new_content.resourceUoM, 0) + new_content.qty)
 
     def test__mutate_state__add_content_same_ru__will_not_fit(self):
         #arrange
         qty=20
-        state = loc_inv_state_factory(loc_uom_capacities=frozenset([UoMCapacity(uoms.each, qty)]),
-                                      contents=frozenset([content_factory(resource=skus.sku_a, qty=qty/2, uom=uoms.each)]),)
+        state = loc_inv_state_factory(location_channel_type=ChannelType.MERGED_CONTENT,
+                                      loc_uom_capacities=frozenset([UoMCapacity(uom=uoms.each, capacity=qty)]))
         new_content = content_factory(resource=skus.sku_a, qty=qty, uom=uoms.each)
 
         # act
-        actor = lambda: ssm.add_content_to_loc(inv_state=state, content=new_content)
+        actor = lambda: ssm.add_content_to_location(inv_state=state, content=new_content)
 
         # assert
-        self.assertRaises(NoRoomAtLocationException, actor)
+        try:
+            actor()
+        except StorageException as e:
+            self.assertEquals(e.user_args.event_type, StorageEventType.EXCEPTION_QTY_OF_UOM_DOESNT_FIT_AT_DESTINATION)
+
 
     def test__mutate_state__add_content_diff_ru__will_fit(self):
         #arrange
         qty=20
         state = loc_inv_state_factory(loc_uom_capacities=frozenset([UoMCapacity(uoms.each, qty)]),
-                                      contents=frozenset([content_factory(resource=skus.sku_a, qty=qty/2, uom=uoms.each)]),)
+                                      location_channel_type=ChannelType.MERGED_CONTENT)
         new_content = content_factory(resource=skus.sku_b, qty=qty/2, uom=uoms.each)
 
         # act
-        new = ssm.add_content_to_loc(inv_state=state, content=new_content)
+        new = ssm.add_content_to_location(inv_state=state, content=new_content)
 
         # assert
-        self.assertEqual(len(new.containers), len(state.containers) + 1)
-        self.assertEqual(new.qty_resource_uom(new_content.resourceUoM), state.qty_resource_uom(new_content.resourceUoM) + new_content.qty)
+        self.assertEqual(new.QtyResourceUoMs[new_content.resourceUoM], state.QtyResourceUoMs.get(new_content.resourceUoM, 0) + new_content.qty)
 
     def test__mutate_state__add_content_diff_ru__will_not_fit(self):
         #arrange
         qty=20
         state = loc_inv_state_factory(loc_uom_capacities=frozenset([UoMCapacity(uoms.each, qty)]),
-                                      contents=frozenset([content_factory(resource=skus.sku_a, qty=qty/2, uom=uoms.each)]))
+                                      location_channel_type=ChannelType.MERGED_CONTENT)
+        content1 = content_factory(resource=skus.sku_a, qty=qty/2, uom=uoms.each)
+        state = ssm.add_content_to_location(state, content1)
+
         new_content = content_factory(resource=skus.sku_b, qty=qty, uom=uoms.each)
 
         # act
-        actor = lambda: ssm.add_content_to_loc(inv_state=state, content=new_content)
+        actor = lambda: ssm.add_content_to_location(inv_state=state, content=new_content)
 
         # assert
-        self.assertRaises(NoRoomAtLocationException, actor)
+        try:
+            actor()
+        except StorageException as e:
+            self.assertEquals(e.user_args.event_type, StorageEventType.EXCEPTION_QTY_OF_UOM_DOESNT_FIT_AT_DESTINATION)
 
     def test__FIFO__not_extractable(self):
         # arrange
         capacity = 3
-        cont_a = content_factory(resource=skus.sku_a, qty=1, uom=uoms.each)
-        cont_b = content_factory(resource=skus.sku_a, qty=1, uom=uoms.each)
+        container1 = ContainerState(lpn="dummy1",
+                                   uom=uoms.box)
+        container2 = ContainerState(lpn="dummy2",
+                                    uom=uoms.box)
         state = loc_inv_state_factory(loc_uom_capacities=frozenset([UoMCapacity(uoms.each, capacity)]),
-                                      contents=frozenset(
-                                          [cont_a, cont_b]),
-                                      location_channel_type=ChannelType.CONTAINER_FIFO_QUEUE
-        )
+                                      containers=tuple([container1, container2]),
+                                      location_channel_type=ChannelType.FIFO_QUEUE)
 
         # act
-        actor = lambda: ssm.remove_content_from_location(inv_state=state, content=cont_b)
+        actor = lambda: ssm.remove_container_from_location(inv_state=state, container=container2)
 
         # assert
-        self.assertRaises(ContentNotInExtractablePositionException, actor)
+        try:
+            actor()
+        except StorageException as e:
+            self.assertEquals(e.user_args.event_type, StorageEventType.EXCEPTION_CONTAINER_NOT_IN_EXTRACTABLE_POSITION)
+
+    def test__FIFO__extractable(self):
+        # arrange
+        capacity = 3
+        container1 = ContainerState(lpn="dummy1",
+                                   uom=uoms.box)
+        container2 = ContainerState(lpn="dummy2",
+                                    uom=uoms.box)
+        state = loc_inv_state_factory(loc_uom_capacities=frozenset([UoMCapacity(uoms.each, capacity)]),
+                                      containers=tuple([container1, container2]),
+                                      location_channel_type=ChannelType.FIFO_QUEUE)
+
+        # act
+        actor = lambda: ssm.remove_container_from_location(inv_state=state, container=container1)
+
+        # assert
+        try:
+            actor()
+        except StorageException as e:
+            self.fail(f"Should not have failed to remove this container")
 
 
+    def test__LIFO__not_extractable(self):
+        # arrange
+        capacity = 3
+        container1 = ContainerState(lpn="dummy1",
+                                   uom=uoms.box)
+        container2 = ContainerState(lpn="dummy2",
+                                    uom=uoms.box)
+        state = loc_inv_state_factory(loc_uom_capacities=frozenset([UoMCapacity(uoms.each, capacity)]),
+                                      containers=tuple([container1, container2]),
+                                      location_channel_type=ChannelType.LIFO_QUEUE)
+
+        # act
+        actor = lambda: ssm.remove_container_from_location(inv_state=state, container=container1)
+
+        # assert
+        try:
+            actor()
+        except StorageException as e:
+            self.assertEquals(e.user_args.event_type, StorageEventType.EXCEPTION_CONTAINER_NOT_IN_EXTRACTABLE_POSITION)
+
+    def test__LIFO__extractable(self):
+        # arrange
+        capacity = 3
+        container1 = ContainerState(lpn="dummy1",
+                                   uom=uoms.box)
+        container2 = ContainerState(lpn="dummy2",
+                                    uom=uoms.box)
+        state = loc_inv_state_factory(loc_uom_capacities=frozenset([UoMCapacity(uoms.each, capacity)]),
+                                      containers=tuple([container1, container2]),
+                                      location_channel_type=ChannelType.LIFO_QUEUE)
+
+        # act
+        actor = lambda: ssm.remove_container_from_location(inv_state=state, container=container2)
+
+        # assert
+        try:
+            actor()
+        except StorageException as e:
+            self.fail(f"Should not have failed to remove this container")
 
