@@ -1,6 +1,6 @@
-from flask_restful import Resource, Api, reqparse
+from flask_restful import Resource
 from coopstorage.storage import Storage
-from api.constants import *
+from api.old.constants import *
 
 class Api_ResourceUoMManifest(Resource):
 
@@ -9,7 +9,7 @@ class Api_ResourceUoMManifest(Resource):
         super().__init__()
 
     def _resource_uom_manifest(self):
-        return {DATA_HEADER: [x.as_dict() for x in self.inv.state.ResourceUoMManifest]}
+        return {DATA_HEADER: [x.as_dict_payload() for x in self.inv.state.ResourceUoMManifest]}
 
     def get(self):
         return self._resource_uom_manifest(), 200

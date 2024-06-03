@@ -1,16 +1,17 @@
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Tuple
 
 
 
-@dataclass(frozen=True, slots=True)
+# @dataclass(frozen=True, slots=True) #pydantic doesnt support slots
+@dataclass(frozen=True)
 class UnitOfMeasure:
     name: str
     each_qty: float = 1
     dimensions: Tuple[float,float,float] = None
-    nesting_factor: Tuple[float, float, float] = None
-    max_stack: int = 1
+    nesting_factor: Tuple[float, float, float] = field(default=None, repr=False)
+    max_stack: int = field(default=1, repr=False)
 
     def as_dict(self):
         return {

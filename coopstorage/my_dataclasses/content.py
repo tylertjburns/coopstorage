@@ -9,7 +9,8 @@ class ContentFactoryException(Exception):
         super().__init__(str(type(self)))
 
 
-@dataclass(frozen=True, slots=True)
+# @dataclass(frozen=True, slots=True) #pydantic doesnt support slots
+@dataclass(frozen=True)
 class Content:
     resourceUoM: ResourceUoM
     qty: float

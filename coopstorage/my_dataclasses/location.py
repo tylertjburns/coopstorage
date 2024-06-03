@@ -4,21 +4,23 @@ from typing import Dict, Optional, List, Union, Tuple
 import uuid
 from coopstorage.resolvers import try_resolve_guid
 from coopstorage.enums import ChannelType
-from coopstorage.constants import *
 
-@dataclass(frozen=True, slots=True)
+# @dataclass(frozen=True, slots=True) #pydantic doesnt support slots
+@dataclass(frozen=True)
 class Location:
+    id: Optional[Union[str, uuid.UUID]] = field(default_factory=uuid.uuid4)
     uom_capacities: frozenset[UoMCapacity] = field(default_factory=frozenset)
     #TODO: Change this to a whitelist/blacklist set of lists
     resource_limitations: frozenset[Resource] = field(default_factory=frozenset)
-    id: Optional[Union[str, uuid.UUID]] = None
     coords: Tuple[float, ...] = None
     channel_type: ChannelType = ChannelType.ALL_ACCESSIBLE
     max_resources_uoms: int = 1
 
-    def __post_init__(self):
-        if self.id is None:
-            object.__setattr__(self, f'{self.id=}'.split('=')[0].replace('self.', ''), uuid.uuid4())
+    # def __post_init__(self):
+        # if self.id is None:
+        #     object.__setattr__(self, f'{self.id=}'.split('=')[0].replace('self.', ''), uuid.uuid4())
+
+        # object.__setattr__(self, '__dict__', self.as_dict())
 
     def __hash__(self):
         return hash(self.id)
@@ -30,7 +32,7 @@ class Location:
     def UoMCapacities(self) -> Dict[UnitOfMeasure, float]:
         return {x.uom: x.capacity for x in self.uom_capacities}
 
-    def as_dict(self):
+    def as_dict_payload(self):
         return {
             f'{self.id=}'.split('=')[0].replace('self.', ''): str(self.id),
             f'{self.uom_capacities=}'.split('=')[0].replace('self.', ''): [x.as_dict() for x in self.uom_capacities],
@@ -54,11 +56,11 @@ def location_factory(location: Location = None,
     uom_capacities = uom_capacities if uom_capacities is not None else \
                     (location.uom_capacities if location else None) or frozenset()
 
-    if new_uom_capacities:
+    if new_uom_capacities is not None:
         existing = [x for x in list(uom_capacities) if x.uom not in [u.uom for u in new_uom_capacities]]
         uom_capacities = frozenset(existing + new_uom_capacities)
 
-    if removed_uom_capacities:
+    if removed_uom_capacities is not None:
         uom_capacities = set(uom_capacities)
         uom_capacities.difference_update(removed_uom_capacities)
         uom_capacities = frozenset(uom_capacities)

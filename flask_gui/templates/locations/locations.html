@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Locations{% endblock %}
+{% block navbar %}
+    <a class="nav-item nav-link" id="locations_home" href="/locations_home">back</a>
+{% endblock %}
+{% block content %}
+    <h3 align="center">Locations</h3>
+    <br />
+    {{ locations_html|safe}}
+{% endblock %}

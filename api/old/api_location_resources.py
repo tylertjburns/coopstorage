@@ -1,4 +1,4 @@
-from api.constants import *
+from api.old.constants import *
 from flask_restful import Resource, reqparse
 import coopstorage.my_dataclasses as md
 from coopstorage.storage import Storage
@@ -56,7 +56,7 @@ class Api_LocationResources(Resource):
 
         try:
             new_loc = self.inv.adjust_location(location=lookup_loc, added_resources=[resource])
-            return {DATA_HEADER: new_loc.as_dict()}, 200
+            return {DATA_HEADER: new_loc.as_dict_payload()}, 200
         except Exception as e:
             return {ERROR_HEADER: str(e)}, 400
 
@@ -71,6 +71,6 @@ class Api_LocationResources(Resource):
 
         try:
             new_loc = self.inv.adjust_location(location=lookup_loc, removed_resources=[resource])
-            return {DATA_HEADER: new_loc.as_dict()}, 200
+            return {DATA_HEADER: new_loc.as_dict_payload()}, 200
         except Exception as e:
             return {ERROR_HEADER: str(e)}, 400

@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from coopstorage.my_dataclasses import UnitOfMeasure
 
 
-@dataclass(frozen=True, slots=True)
+# @dataclass(frozen=True, slots=True) #pydantic doesnt support slots
+@dataclass(frozen=True)
 class UoMCapacity:
     uom: UnitOfMeasure
     capacity: float

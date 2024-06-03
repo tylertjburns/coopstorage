@@ -9,7 +9,8 @@ class ResourceType(CoopEnum):
     DEFAULT = auto()
 
 
-@dataclass(frozen=True, slots=True)
+# @dataclass(frozen=True, slots=True) #pydantic doesnt support slots
+@dataclass(frozen=True)
 class Resource:
     name: str
     type: ResourceType

@@ -3,9 +3,9 @@ from coopstorage.my_dataclasses import Location, Content, content_factory, Resou
 import coopstorage.storage.storage_state_mutations as ssm
 from typing import List, Union
 import threading
-import pprint
-from coopstorage.exceptions import *
 from coopstorage.resolvers import try_resolve_guid
+from cooptools.commandDesignPattern import CommandController
+
 
 class Storage:
 
@@ -18,6 +18,9 @@ class Storage:
             loc_states=frozenset([loc_inv_state_factory(location=x) for x in locations])
         )
         self._lock = threading.RLock()
+        # self._command_controller = CommandController( StorageState(
+        #     loc_states=frozenset([loc_inv_state_factory(location=x) for x in locations])
+        # ))
 
     def __str__(self):
         return f"id: {self._id}, Locs: {len(self.state.Inventory)}, occupied: {len(self.state.OccupiedLocs)}, empty: {len(self.state.EmptyLocs)}"
@@ -55,7 +58,7 @@ class Storage:
                 loc_prioritizer=loc_prioritizer
             )
 
-        return content
+            return content
 
     def location_by_id(self, id: Union[str, uuid.UUID]) -> Location:
         return next(iter([x for x in self.state.Locations if x.id == try_resolve_guid(id)]), None)
@@ -66,7 +69,7 @@ class Storage:
 
     def remove_locations(self, locations: List[Location]):
         with self._lock:
-            self.state=ssm.remove_locations(state=self.state, locations=locations)
+            self.state=ssm.remove_locations(state=self.State, locations=locations)
 
     def adjust_location(self,
                         location: Location,
@@ -87,3 +90,6 @@ class Storage:
 
             return self.location_by_id(location.id)
 
+    # @property
+    # def State(self):
+    #     return self._command_controller.State

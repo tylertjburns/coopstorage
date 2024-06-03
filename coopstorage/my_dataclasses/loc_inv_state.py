@@ -5,7 +5,8 @@ from coopstorage.enums import ChannelType
 from cooptools.common import flattened_list_of_lists
 from coopstorage.constants import *
 
-@dataclass(frozen=True, slots=True)
+# @dataclass(frozen=True, slots=True) #pydantic doesnt support slots
+@dataclass(frozen=True)
 class LocInvState(BaseDC):
     location: Location
     containers: Tuple[ContainerState] = field(default_factory=tuple)
@@ -23,7 +24,7 @@ class LocInvState(BaseDC):
 
     def as_dict(self):
         return {
-            f'{self.location=}'.split('=')[0].replace('self.', ''): self.location.as_dict(),
+            f'{self.location=}'.split('=')[0].replace('self.', ''): self.location.as_dict_payload(),
             f'{self.containers=}'.split('=')[0].replace('self.', ''): [x.as_dict() for x in self.containers],
             f'{self.location_container=}'.split('=')[0].replace('self.', ''): self.location_container.as_dict(),
         }

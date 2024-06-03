@@ -10,7 +10,8 @@ from coopstorage.enums import ChannelType
 location_prioritizer = Callable[[List[LocInvState]], Location]
 
 
-@dataclass(frozen=True, slots=True)
+# @dataclass(frozen=True, slots=True) #pydantic doesnt support slots
+@dataclass(frozen=True)
 class StorageState:
     loc_states: frozenset[LocInvState]
     id: str = uuid.uuid4()

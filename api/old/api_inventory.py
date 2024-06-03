@@ -1,4 +1,4 @@
-from api.constants import *
+from api.old.constants import *
 from flask_restful import Resource, reqparse
 from coopstorage.my_dataclasses import content_factory, Content, Location, resourceUom_factory
 import coopstorage.uom_manifest as uoms
@@ -41,7 +41,7 @@ class Api_Inventory(Resource):
         return content, loc
 
     def get(self):
-        return {DATA_HEADER: self.inv.state.as_dict()}, 200
+        return {DATA_HEADER: self.inv.state.as_dict_payload()}, 200
 
     def post(self):
         content, loc = self._resolve_args()
@@ -51,7 +51,7 @@ class Api_Inventory(Resource):
             self.inv.add_content(content=content,
                             location=loc)
 
-            return self.inv.state.as_dict(), 200
+            return self.inv.state.as_dict_payload(), 200
         except Exception as e:
             return {ERROR_HEADER: str(e)}, 400
 
@@ -64,6 +64,6 @@ class Api_Inventory(Resource):
                                 location=loc,
                                loc_prioritizer=lambda x: self.loc_prio_smallest_content_present(x, ru=content.resourceUoM))
 
-            return self.inv.state.as_dict(), 200
+            return self.inv.state.as_dict_payload(), 200
         except Exception as e:
             return {ERROR_HEADER: str(e)}, 400

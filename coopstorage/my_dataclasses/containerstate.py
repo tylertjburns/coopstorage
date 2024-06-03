@@ -5,7 +5,8 @@ from cooptools.randoms import a_string
 from datetime import datetime
 from json import dumps
 
-@dataclass(frozen=True, slots=True)
+# @dataclass(frozen=True, slots=True) #pydantic doesnt support slots
+@dataclass(frozen=True)
 class ContainerState:
     lpn: str
     uom: UnitOfMeasure

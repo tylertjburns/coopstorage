@@ -44,5 +44,5 @@ class Test_Dataclass_Container(unittest.TestCase):
         new_cnt = container_factory(lpn=lpn, uom=uom)
 
         # assert
-        self.assertEqual(new_cnt.lpn, lpn)
+        self.assertEqual(new_cnt.id, lpn)
         self.assertEqual(new_cnt.uom, uom)
