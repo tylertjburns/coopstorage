@@ -1,19 +1,29 @@
+import logging
+import uuid
+
 import coopstorage.storage2.loc_load.dcs as dcs
-from coopstorage.storage2.loc_load.types import UniqueId
-from coopstorage.storage2.loc_load.channel_processors import IChannelProcessor
-from typing import List, Optional, Dict
+from cooptools.common import UniqueIdentifier
+from typing import List, Optional, Dict, Iterable
+from cooptools.geometry_utils import vector_utils as vec
+from coopstorage.storage2.loc_load.channel import Channel
+from cooptools.register import Register
+
+logger = logging.getLogger(__name__)
 
 class Location:
     def __init__(self,
-                 id: UniqueId,
+                 id: UniqueIdentifier,
                  location_meta: dcs.LocationMeta,
-                 channel_processor: IChannelProcessor):
-
+                 coords: vec.FloatVec):
         self._id = id
+        self._coords: vec.FloatVec = coords
         self._meta = location_meta
-        self._channel_processor = channel_processor
-        self._loads = [None for _ in range(self._meta.capacity)]
-
+        self._channel: Channel = Channel(
+            processor=location_meta.channel_processor,
+            id=f"{id}_channel",
+            capacity=location_meta.capacity
+        )
+        self._reservation_token = None
 
     @property
     def Capacity(self) -> int:
@@ -21,47 +31,89 @@ class Location:
 
     @property
     def AvailableCapacity(self) -> int:
-        return self._meta.capacity - len(self.LoadPositions)
+        return self._meta.capacity - len(self.LoadIds)
 
     @property
-    def LoadPositions(self) -> Dict[int, dcs.Load]:
-        return {ii: x for ii, x in enumerate(self._loads)}
+    def LoadPositions(self) -> Dict[int, UniqueIdentifier]:
+        return {ii: x for ii, x in enumerate(self._channel.State)}
 
+    @property
+    def Id(self) -> UniqueIdentifier:
+        return self._id
 
+    @property
+    def Meta(self) -> dcs.LocationMeta:
+        return self._meta
 
-    def add_load(self, load: dcs.Load, echo: bool = False):
+    @property
+    def LoadIds(self) -> List[UniqueIdentifier]:
+        return self._channel.StoredIds
 
+    def get_removable_positions(self):
+        return self._channel.get_removable_positions()
 
+    def get_addable_positions(self):
+        return self._channel.get_addable_positions()
 
+    def get_removable_load_ids(self):
+        return self._channel.get_removable_ids()
 
-        if inv_state.location.channel_type == ChannelType.MERGED_CONTENT:
-            return _merge_container_at_location(inv_state=inv_state, contents=list(container.contents))
+    def store_loads(self, load_ids: Iterable[UniqueIdentifier]):
+        logger.info(f"Storing loads {[x for x in load_ids]} in location \'{self._id}\': {str(self._channel)}")
+        self._channel.store(load_ids)
+        logger.info(f"Done storing loads {[x for x in load_ids]} in location \'{self._id}\': {str(self._channel)}")
+        return self
 
-        uom_types_to_store = [container.UoM]
+    def remove_loads(self, load_ids: Iterable[UniqueIdentifier]):
+        logger.info(f"Removing loads {[x for x in load_ids]} from location \'{self._id}\': {str(self._channel)}")
+        self._channel.remove(load_ids)
+        logger.info(f"Done removing loads {[x for x in load_ids]} from location \'{self._id}\': {str(self._channel)}")
+        return self
 
-        # verify that the uom types match the location uom capacities of the location
-        cubing.check_raise_uom_capacity_match(check_uoms=uom_types_to_store, uom_capacities=list(inv_state.location.uom_capacities))
+    def clear_loads(self):
+        self._channel.clear()
 
-        # verify capacity
-        qty_at_loc = inv_state.QtyContainerUoMs.get(container.UoM, 0)
-        cubing.check_raise_uom_qty_doesnt_fit(
-            uom=container.uom,
-            capacity=inv_state.location.UoMCapacities[container.UoM],
-            current=qty_at_loc,
-            qty=1
-        )
+    def set_reservation_token(self, token: uuid.UUID):
+        self._reservation_token = token
 
-        # add container and merge at location
-        new_containers = list(inv_state.containers)
-        new_containers.append(container)
+    def remove_reservation_token(self, token: uuid.UUID):
+        if self._reservation_token == token:
+            self._reservation_token = None
 
-        # create new state
-        new_state = loc_inv_state_factory(
-            loc_inv_state=inv_state,
-            containers=tuple(new_containers),
-        )
+    @property
+    def Reserved(self) -> bool:
+        return self._reservation_token is not None
 
-        if echo:
-            pprint.pprint(new_state.as_dict())
+    def verify_removable(self, item):
+        return self._meta.channel_processor.verify_removable(item, state=self._channel.State)
 
-        return new_state
+    def summary(self) -> Dict[UniqueIdentifier, List[UniqueIdentifier]]:
+        return {k.Id: [ld.id for ld in v] for k, v in self.LocLoads.items()}
+
+    def __repr__(self):
+        return f"{self._id}: {self.LoadIds}"
+
+if __name__ == "__main__":
+    import coopstorage.storage2.loc_load.channel_processors as cps
+    logging.basicConfig(level=logging.DEBUG)
+    l_a = Location(
+        id='a',
+        location_meta=dcs.LocationMeta(
+            channel_processor=cps.LIFOFlowBackwardChannelProcessor(),
+            capacity=2,
+            dims=(100, 100, 100),
+        ),
+        coords=(1, 1, 1)
+    )
+
+    lpn1 = dcs.Load(
+        id='1',
+        uom=dcs.UnitOfMeasure(name="ea"),
+    )
+    lpn2 = dcs.Load(
+        id='2',
+        uom=dcs.UnitOfMeasure(name="ea"),
+    )
+    l_a.store_loads([lpn1.id])
+    l_a.store_loads([lpn2.id])
+    l_a.remove_loads([lpn2.id])

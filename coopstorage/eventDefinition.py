@@ -204,5 +204,3 @@ class StorageException(Exception):
 
 if __name__ == "__main__":
     pass
-
-    print(x.event_type)

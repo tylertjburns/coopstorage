@@ -3,36 +3,57 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def str_format_channel_state(state):
+    return '[' + ','.join([str(x) if x is not None else '-' for x in state]) + ']'
+
 def flow(state: Iterable[Optional[Hashable]],
          backwards: bool = False) -> List[Optional[Hashable]]:
     new = [x for x in state if x is not None]
 
     if backwards:
         new = new + [None for _ in range(len(list(state)) - len(new))]
+        logger.info(f"Items flowed backwards: {str_format_channel_state(new)}")
     else:
         new = [None for _ in range(len(list(state)) - len(new))] + new
+        logger.info(f"Items flowed forwards: {str_format_channel_state(new)}")
 
     return new
 
-def accessible(state: Iterable[Optional[Hashable]],
-               include_first: bool = False,
-               include_last: bool = False,
-               include_all: bool = False) -> Dict[int, Hashable]:
+def removable_positions(
+        state: Iterable[Optional[Hashable]],
+        include_first: bool = False,
+        include_last: bool = False,
+        include_all: bool = False
+) -> List[int]:
     if include_all:
-        return {ii: x for ii, x in enumerate(state) if x is not None}
+        return [ii for ii, x in enumerate(state) if x is not None]
 
-    ret = {}
-    if include_last:
-        last_item = next(x for x in list(state) if x is not None)
-        last_idx = list(state).index(last_item)
-        ret[last_idx] = last_item
+    ret = []
 
     if include_first:
         first_item = next(x for x in reversed(list(state)) if x is not None)
         first_idx = list(state).index(first_item)
-        ret[first_idx] = first_item
+        ret.append(first_idx)
+
+    if include_last:
+        last_item = next(x for x in list(state) if x is not None)
+        last_idx = list(state).index(last_item)
+        ret.append(last_idx)
 
     return ret
+
+def accessible_ids(state: Iterable[Optional[Hashable]],
+                   include_first: bool = False,
+                   include_last: bool = False,
+                   include_all: bool = False) -> Dict[int, Hashable]:
+    accessible_ids = removable_positions(
+        state=state,
+        include_last=include_last,
+        include_all=include_all,
+        include_first=include_first
+    )
+
+    return {ii: list(state)[ii] for ii in accessible_ids}
 
 class ItemNotFoundToRemoveException(Exception):
     def __init__(self, requested, state):
@@ -86,25 +107,34 @@ class IChannelProcessor(Protocol):
         return new_state
 
     @classmethod
+    def verify_removable(cls,
+                         item: Hashable,
+                         state: Iterable[Optional[Hashable]]):
+        if item not in state:
+            raise ItemNotFoundToRemoveException(requested=item, state=state)
+
+        available = cls.get_removeable_ids(state)
+        if item not in available.values():
+            raise ItemNotAccessibleToRemoveException(requested=item, state=state, available=available)
+
+    @classmethod
     def _remove_items(cls,
                       state: Iterable[Optional[Hashable]],
                       removed: Iterable[Hashable] = None) -> List[Optional[Hashable]]:
         if removed is None:
             return list(state)
 
+        logger.info(f"Removing Items: {removed}")
         new_state = [x for x in state]
 
         for item in removed:
-            idx = list(state).index(item)
-            if idx is None:
-                raise ItemNotFoundToRemoveException(requested=item, state=new_state)
+            cls.verify_removable(item, new_state)
 
-            available = cls.get_removeable(new_state)
-            if item not in available.values():
-                raise ItemNotAccessibleToRemoveException(requested=item, state=new_state, available=available)
-
+            idx = list(new_state).index(item)
             new_state[idx] = None
             new_state = cls.post_process(new_state)
+
+        logger.info(f"Items removed: {removed}")
         return new_state
 
     @classmethod
@@ -116,9 +146,11 @@ class IChannelProcessor(Protocol):
         if added is None:
             return list(state)
 
+        logger.info(f"Adding Items: {added}")
         new_state = [x for x in state]
 
         for item in added:
+
             idx = cls.get_addable_positions(state)[0]
             '''Check if there is space in the channel'''
             if not allow_replacement and len([x for x in new_state if x is not None]) + 1 > len(new_state):
@@ -136,10 +168,15 @@ class IChannelProcessor(Protocol):
             ''' Post Process'''
             new_state = cls.post_process(new_state)
 
+        logger.info(f"Items added: {added}")
         return new_state
 
     @classmethod
-    def get_removeable(cls, state: Iterable[Optional[Hashable]]) -> Dict[int, Hashable]:
+    def get_removeable_ids(cls, state: Iterable[Optional[Hashable]]) -> Dict[int, Hashable]:
+        return {ii: state[ii] for ii in cls.get_removable_positions(state)}
+
+    @classmethod
+    def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
         raise NotImplementedError()
 
     @classmethod
@@ -155,8 +192,8 @@ class AllAvailableChannelProcessor(IChannelProcessor):
         super().__init__()
 
     @classmethod
-    def get_removeable(cls, state: Iterable[Optional[Hashable]]) -> Dict[int, Hashable]:
-        return accessible(state=state, include_all=True)
+    def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        return removable_positions(state=state, include_all=True)
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
@@ -171,8 +208,8 @@ class AllAvailableFlowChannelProcessor(IChannelProcessor):
         super().__init__()
 
     @classmethod
-    def get_removeable(cls, state: Iterable[Optional[Hashable]]) -> Dict[int, Hashable]:
-        return accessible(state=state, include_all=True)
+    def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        return removable_positions(state=state, include_all=True)
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
@@ -187,8 +224,8 @@ class AllAvailableFlowBackwardChannelProcessor(IChannelProcessor):
         super().__init__()
 
     @classmethod
-    def get_removeable(cls, state: Iterable[Optional[Hashable]]) -> Dict[int, Hashable]:
-        return accessible(state=state, include_all=True)
+    def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        return removable_positions(state=state, include_all=True)
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
@@ -204,8 +241,8 @@ class FIFOFlowChannelProcessor(IChannelProcessor):
         super().__init__()
 
     @classmethod
-    def get_removeable(cls, state: Iterable[Optional[Hashable]]) -> Dict[int, Hashable]:
-        return accessible(state=state, include_first=True)
+    def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        return removable_positions(state=state, include_first=True)
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
@@ -222,8 +259,8 @@ class FIFOFlowBackwardChannelProcessor(IChannelProcessor):
         super().__init__()
 
     @classmethod
-    def get_removeable(cls, state: Iterable[Optional[Hashable]]) -> Dict[int, Hashable]:
-        return accessible(state=state, include_first=True)
+    def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        return removable_positions(state=state, include_first=True)
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
@@ -239,8 +276,8 @@ class LIFOFlowChannelProcessor(IChannelProcessor):
         super().__init__()
 
     @classmethod
-    def get_removeable(cls, state: Iterable[Optional[Hashable]]) -> Dict[int, Hashable]:
-        return accessible(state=state, include_last=True)
+    def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        return removable_positions(state=state, include_last=True)
 
 
     @classmethod
@@ -259,8 +296,8 @@ class LIFOFlowBackwardChannelProcessor(IChannelProcessor):
         super().__init__()
 
     @classmethod
-    def get_removeable(cls, state: Iterable[Optional[Hashable]]) -> Dict[int, Hashable]:
-        return accessible(state=state, include_last=True)
+    def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        return removable_positions(state=state, include_last=True)
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
@@ -275,8 +312,8 @@ class OMNIChannelProcessor(IChannelProcessor):
         super().__init__()
 
     @classmethod
-    def get_removeable(cls, state: Iterable[Optional[Hashable]]) -> Dict[int, Hashable]:
-        return accessible(state=state, include_first=True, include_last=True)
+    def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        return removable_positions(state=state, include_first=True, include_last=True)
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
@@ -291,8 +328,8 @@ class OMNIFlowChannelProcessor(IChannelProcessor):
         super().__init__()
 
     @classmethod
-    def get_removeable(cls, state: Iterable[Optional[Hashable]]) -> Dict[int, Hashable]:
-        return accessible(state=state, include_first=True, include_last=True)
+    def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        return removable_positions(state=state, include_first=True, include_last=True)
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
@@ -310,8 +347,8 @@ class OMNIFlowBackwardChannelProcessor(IChannelProcessor):
         super().__init__()
 
     @classmethod
-    def get_removeable(cls, state: Iterable[Optional[Hashable]]) -> Dict[int, Hashable]:
-        return accessible(state=state, include_first=True, include_last=True)
+    def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        return removable_positions(state=state, include_first=True, include_last=True)
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
