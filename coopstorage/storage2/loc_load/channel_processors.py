@@ -1,10 +1,13 @@
 from typing import Protocol, Iterable, List, Hashable, Dict, Optional
 import logging
+import unittest
 
 logger = logging.getLogger(__name__)
 
+
 def str_format_channel_state(state):
     return '[' + ','.join([str(x) if x is not None else '-' for x in state]) + ']'
+
 
 def flow(state: Iterable[Optional[Hashable]],
          backwards: bool = False) -> List[Optional[Hashable]]:
@@ -18,6 +21,7 @@ def flow(state: Iterable[Optional[Hashable]],
         logger.info(f"Items flowed forwards: {str_format_channel_state(new)}")
 
     return new
+
 
 def removable_positions(
         state: Iterable[Optional[Hashable]],
@@ -42,6 +46,7 @@ def removable_positions(
 
     return ret
 
+
 def accessible_ids(state: Iterable[Optional[Hashable]],
                    include_first: bool = False,
                    include_last: bool = False,
@@ -55,11 +60,13 @@ def accessible_ids(state: Iterable[Optional[Hashable]],
 
     return {ii: list(state)[ii] for ii in accessible_ids}
 
+
 class ItemNotFoundToRemoveException(Exception):
     def __init__(self, requested, state):
         msg = f"Item <{requested}> requested to remove, but it wasnt found. <{state}>"
         logger.error(msg)
         super().__init__(msg)
+
 
 class ItemNotAccessibleToRemoveException(Exception):
     def __init__(self, requested, state, available):
@@ -67,15 +74,17 @@ class ItemNotAccessibleToRemoveException(Exception):
         logger.error(msg)
         super().__init__(msg)
 
+
 class ItemBlockingToAddException(Exception):
     def __init__(self, requested, pos, state):
         msg = f"Item <{requested}> requested to add to pos {pos}, but item {state[pos]} already in that pos: <{state}>"
         logger.error(msg)
         super().__init__(msg)
 
+
 class NoRoomToAddException(Exception):
-    def __init__(self, requested, pos, state):
-        msg = f"Item <{requested}> requested to be added to pos {pos}, but there is no room: <{state}>"
+    def __init__(self, requested, state):
+        msg = f"Item <{requested}> requested to be added, but there is no room: <{state}>"
         logger.error(msg)
         super().__init__(msg)
 
@@ -151,10 +160,15 @@ class IChannelProcessor(Protocol):
 
         for item in added:
 
-            idx = cls.get_addable_positions(state)[0]
+            addable_positions = cls.get_addable_positions(new_state)
+            idx = None
+            if len(addable_positions) > 0:
+                idx = addable_positions[0]
+
             '''Check if there is space in the channel'''
-            if not allow_replacement and len([x for x in new_state if x is not None]) + 1 > len(new_state):
-                raise NoRoomToAddException(requested=item, pos=idx, state=new_state)
+            if ((idx is None) or
+                    (not allow_replacement and len([x for x in new_state if x is not None]) + 1 > len(new_state))):
+                raise NoRoomToAddException(requested=item, state=new_state)
             '''Check if an item is present at position and it has not been signaled to allow push or replacement'''
             if new_state[idx] is not None and new_state[idx] != item and not allow_replacement and not cls._allow_push:
                 raise ItemBlockingToAddException(requested=item, pos=idx, state=new_state)
@@ -187,6 +201,7 @@ class IChannelProcessor(Protocol):
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Optional[Hashable]]:
         raise NotImplementedError()
 
+
 class AllAvailableChannelProcessor(IChannelProcessor):
     def __init__(self):
         super().__init__()
@@ -203,6 +218,7 @@ class AllAvailableChannelProcessor(IChannelProcessor):
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Optional[Hashable]]:
         return list(state)
 
+
 class AllAvailableFlowChannelProcessor(IChannelProcessor):
     def __init__(self):
         super().__init__()
@@ -218,6 +234,7 @@ class AllAvailableFlowChannelProcessor(IChannelProcessor):
     @classmethod
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Optional[Hashable]]:
         return flow(state)
+
 
 class AllAvailableFlowBackwardChannelProcessor(IChannelProcessor):
     def __init__(self):
@@ -252,6 +269,7 @@ class FIFOFlowChannelProcessor(IChannelProcessor):
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Hashable]:
         return flow(state)
 
+
 class FIFOFlowBackwardChannelProcessor(IChannelProcessor):
     _allow_push = True
 
@@ -278,7 +296,6 @@ class LIFOFlowChannelProcessor(IChannelProcessor):
     @classmethod
     def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
         return removable_positions(state=state, include_last=True)
-
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
@@ -307,6 +324,7 @@ class LIFOFlowBackwardChannelProcessor(IChannelProcessor):
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Hashable]:
         return flow(state, backwards=True)
 
+
 class OMNIChannelProcessor(IChannelProcessor):
     def __init__(self):
         super().__init__()
@@ -322,6 +340,7 @@ class OMNIChannelProcessor(IChannelProcessor):
     @classmethod
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Hashable]:
         return list(state)
+
 
 class OMNIFlowChannelProcessor(IChannelProcessor):
     def __init__(self):
@@ -360,89 +379,48 @@ class OMNIFlowBackwardChannelProcessor(IChannelProcessor):
 
 
 
-
-if __name__ == "__main__":
-    from pprint import pprint
-    def test_allavail_1():
+class MyTestCases(unittest.TestCase):
+    def test_allavail_1(self):
         state = [None for ii in range(5)]
         cp = AllAvailableChannelProcessor()
-        state = cp.process(state, added={2: 'a', 3: 'b'})
-        pprint(state)
+        state = cp.process(state, added=['a', 'b'])
+        state = cp.process(state, added=['c', 'd'])
+        self.assertTrue(all(x in state for x in ['a', 'b', 'c', 'd']))
+        self.assertEqual(len([x for x in state if x is not None]), 4)
 
-        state = cp.process(state, added={1: 'c', 4: 'd'})
-        pprint(state)
-
-        state = cp.process(state, removed={1: 'c', 2: 'a'})
-        pprint(state)
+        state = cp.process(state, removed=['c', 'a'])
+        self.assertTrue(all(x in state for x in ['b', 'd']))
+        self.assertEqual(len([x for x in state if x is not None]), 2)
 
 
-        state = cp.process(state, removed={1: 'c', 2: 'a'})
-        pprint(state)
-
-    def test_fifo_1():
+    def test_fifo_1(self):
         state = [None for ii in range(5)]
 
         cp = FIFOFlowChannelProcessor()
-        new_state = cp.process(state=state,
-                   added={0:'a'})
+        state = cp.process(state=state,
+                               added=['a', 'b', 'c', 'd', 'e'])
 
-        pprint(new_state)
+        self.assertTrue(all(x in state for x in ['a', 'b', 'c', 'd', 'e']))
+        self.assertEqual(len([x for x in state if x is not None]), 5)
 
-        new_state = cp.process(state=new_state,
-                   added={0:'b'})
+        self.assertRaises(NoRoomToAddException, lambda: cp.process(state=state,
+                               added=['f']))
 
-        pprint(new_state)
-        new_state = cp.process(state=new_state,
-                   added={0:'c'})
+        self.assertRaises(ItemNotAccessibleToRemoveException, lambda: cp.process(state=state,
+                               removed=['e']))
 
-        pprint(new_state)
-        new_state = cp.process(state=new_state,
-                   added={0:'d'})
-
-        pprint(new_state)
-        new_state = cp.process(state=new_state,
-                   added={0:'e'})
-        new_state = cp.process(state=new_state,
-                               added={0: 'f'})
-
-        pprint(new_state)
-
-        new_state = cp.process(state=new_state,
-                               removed={4: 'a'})
-
-        pprint(new_state)
-
-    def test_lifo_1():
+    def test_lifo_1(self):
         state = [None for ii in range(5)]
 
         cp = LIFOFlowChannelProcessor()
         new_state = cp.process(state=state,
-                   added={0:'a'})
-
-        pprint(new_state)
+                               added=['a', 'b', 'c', 'd', 'e'])
 
         new_state = cp.process(state=new_state,
-                   added={0:'b'})
-
-        pprint(new_state)
-        new_state = cp.process(state=new_state,
-                   added={0:'c'})
-
-        pprint(new_state)
-        new_state = cp.process(state=new_state,
-                   added={0:'d'})
-
-        pprint(new_state)
-        new_state = cp.process(state=new_state,
-                   added={0:'e'})
-
-        pprint(new_state)
-
-        new_state = cp.process(state=new_state,
-                               removed={0: 'e'})
-
-        pprint(new_state)
+                               removed=['e'])
+        self.assertRaises(ItemNotAccessibleToRemoveException, lambda: cp.process(state=new_state,
+                               removed=['a']))
 
 
-    test_fifo_1()
-    test_lifo_1()
+if __name__ == "__main__":
+    unittest.main()

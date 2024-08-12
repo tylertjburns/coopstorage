@@ -2,7 +2,7 @@ import logging
 import uuid
 
 import coopstorage.storage2.loc_load.dcs as dcs
-from cooptools.common import UniqueIdentifier
+from cooptools.protocols import UniqueIdentifier
 from typing import List, Optional, Dict, Iterable
 from cooptools.geometry_utils import vector_utils as vec
 from coopstorage.storage2.loc_load.channel import Channel
@@ -84,8 +84,8 @@ class Location:
     def Reserved(self) -> bool:
         return self._reservation_token is not None
 
-    def verify_removable(self, item):
-        return self._meta.channel_processor.verify_removable(item, state=self._channel.State)
+    def verify_removable(self, load_id: UniqueIdentifier):
+        return self._meta.channel_processor.verify_removable(load_id, state=self._channel.State)
 
     def summary(self) -> Dict[UniqueIdentifier, List[UniqueIdentifier]]:
         return {k.Id: [ld.id for ld in v] for k, v in self.LocLoads.items()}
@@ -93,6 +93,8 @@ class Location:
     def __repr__(self):
         return f"{self._id}: {self.LoadIds}"
 
+    def get_id(self) -> UniqueIdentifier:
+        return self._id
 if __name__ == "__main__":
     import coopstorage.storage2.loc_load.channel_processors as cps
     logging.basicConfig(level=logging.DEBUG)

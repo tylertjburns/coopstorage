@@ -1,15 +1,12 @@
 from cooptools.geometry_utils.vector_utils import FloatVec, IterVec
-import coopstorage.my_dataclasses as dcs
-from coopstorage.storage2.loc_load.types import *
 from dataclasses import dataclass, field, asdict
 from coopstorage.my_dataclasses import UoMCapacity, Resource
 from typing import Dict, Optional, List, Union, Tuple, Iterable
 import uuid
-from coopstorage.enums import ChannelType
 from cooptools.geometry_utils import vector_utils as vec
 import coopstorage.storage2.loc_load.channel_processors as cps
 import re
-from cooptools.common import UniqueIdentifier
+from cooptools.protocols import UniqueIdentifier
 
 @dataclass(frozen=True, slots=True)
 class BaseDataClass:
@@ -24,6 +21,10 @@ class BaseIdentifiedDataClass(BaseDataClass):
 
     def __eq__(self, other):
         return hash(other) == hash(self)
+
+    def get_id(self):
+        return self.id
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UnitOfMeasure(BaseDataClass):
     name: str
@@ -35,8 +36,8 @@ class Load(BaseIdentifiedDataClass):
     weight: float = None
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class LoadLocation(BaseIdentifiedDataClass):
-    coords: FloatVec
+class LoadPosition(BaseIdentifiedDataClass):
+    loc_offset: FloatVec
     uom_capacities: frozenset[UoMCapacity] = field(default_factory=frozenset)
     is_controlled: bool = True
     boundary: IterVec = field(default_factory=list)
@@ -44,14 +45,14 @@ class LoadLocation(BaseIdentifiedDataClass):
 @dataclass(frozen=True, slots=True)
 class PatternMatchQuery:
     regex: str = None
-    id: str = None
+    id: UniqueIdentifier = None
 
     def __post_init__(self):
         if self.regex is None and self.id is None:
             raise ValueError(f"At least one of regex or id must be filled")
 
         if self.id is not None:
-            object.__setattr__(self, f'{self.regex=}'.split('=')[0].replace('self.', ''), self.id)
+            object.__setattr__(self, f'{self.regex=}'.split('=')[0].replace('self.', ''), str(self.id))
 
     def check_if_matches(self, value: str):
         return re.match(self.regex, value)
@@ -73,7 +74,7 @@ if __name__ == "__main__":
     l4 = Load(id=4)
 
     def test_1():
-        ls = LoadStorage()
+        ls = ()
         ls.add_loads([l1, l2, l3, l4])
 
         pprint(ls.LoadIds)

@@ -2,7 +2,7 @@ import uuid
 import logging
 import coopstorage.storage2.loc_load.channel_processors as cps
 from typing import Protocol, List, Optional, Iterable
-from cooptools.common import UniqueIdentifier
+from cooptools.protocols import UniqueIdentifier
 
 logger = logging.getLogger(__name__)
 

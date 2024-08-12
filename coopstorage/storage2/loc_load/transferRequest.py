@@ -1,4 +1,3 @@
-from coopstorage.storage2.loc_load.types import *
 from dataclasses import dataclass, field, asdict
 import coopstorage.storage2.loc_load.dcs as dcs
 import coopstorage.storage2.loc_load.qualifiers as lq
@@ -28,7 +27,7 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
             return True
 
         # source empty, firm load, dest empty --> remove load
-        if self.source_loc is None and \
+        if self.source_loc is not None and \
             self.load is not None and \
             self.dest_loc is None:
             return True
@@ -42,12 +41,14 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
             if self.source_loc is None:
                 pass
             else:
-                self.source_loc.verify_removable(self.load)
+                self.source_loc.verify_removable(self.load.id)
         except:
             return False
 
         # is destination clear
-        if len(self.dest_loc.get_addable_positions()) == 0:
+        if self.dest_loc is None:
+            pass
+        elif len(self.dest_loc.get_addable_positions()) == 0:
             return False
 
         return True
@@ -73,6 +74,9 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
 
     def __post_init__(self):
         self.verify()
+
+    def id(self):
+        return self.id
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TransferRequestCriteria(dcs.BaseIdentifiedDataClass):

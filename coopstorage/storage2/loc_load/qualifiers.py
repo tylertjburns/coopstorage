@@ -1,6 +1,6 @@
 from coopstorage.storage2.loc_load.location import Location
 import coopstorage.storage2.loc_load.dcs as dcs
-from typing import Iterable, List
+from typing import Iterable, List, Optional
 import re
 from dataclasses import dataclass
 import cooptools.geometry_utils.vector_utils as vec
@@ -9,9 +9,9 @@ import coopstorage.storage2.loc_load.dcs as dcs
 
 @dataclass(frozen=True, slots=True)
 class LoadQualifier:
-    pattern: dcs.PatternMatchQuery = None
-    max_dims: vec.FloatVec = None
-    min_dims: vec.FloatVec = None
+    pattern: Optional[dcs.PatternMatchQuery] = None
+    max_dims: Optional[vec.FloatVec] = None
+    min_dims: Optional[vec.FloatVec] = None
 
     def check_if_qualifies(self, load: dcs.Load) -> bool:
         # Disqualify on Pattern
@@ -40,13 +40,13 @@ class LoadQualifier:
 
 @dataclass(frozen=True, slots=True)
 class LocationQualifier:
-    pattern: dcs.PatternMatchQuery = None
-    max_dims: vec.FloatVec = None
-    min_dims: vec.FloatVec = None
-    any_loads: Iterable[LoadQualifier] = None
-    all_loads: Iterable[LoadQualifier] = None
-    reserved: bool = None
-    at_least_capacity: int = None
+    pattern:  Optional[dcs.PatternMatchQuery] = None
+    max_dims:  Optional[vec.FloatVec] = None
+    min_dims:  Optional[vec.FloatVec] = None
+    any_loads:  Optional[Iterable[LoadQualifier] ]= None
+    all_loads:  Optional[Iterable[LoadQualifier]] = None
+    reserved:  Optional[bool] = None
+    at_least_capacity:  Optional[int] = None
 
     def check_if_qualifies(self, loc: Location) -> bool:
         # Disqualify on Pattern
