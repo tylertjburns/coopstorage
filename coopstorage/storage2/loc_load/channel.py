@@ -1,25 +1,46 @@
 import uuid
 import logging
 import coopstorage.storage2.loc_load.channel_processors as cps
-from typing import Protocol, List, Optional, Iterable
+from typing import Protocol, List, Optional, Iterable, Dict
 from cooptools.protocols import UniqueIdentifier
+from cooptools.dataStore.dataStoreProtocol import DataStoreProtocol
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+@dataclass(frozen=True, slots=True)
+class ChannelMeta:
+    id: UniqueIdentifier
+    processor_type: cps.IChannelProcessor
+    capacity: int
+
+class ChannelStateStore:
+    def __init__(self,
+                 data_store: DataStoreProtocol):
+        self._data_store = data_store
+
+    def retrieve_state(self):
+        return self._data_store.get(ids=[self._id])
+
+    # def persist_state(self, ):
+    #     self._data_store.
+
 
 class Channel:
     def __init__(self,
                  processor: cps.IChannelProcessor,
                  id: UniqueIdentifier = None,
                  capacity: int = 1,
-                 init_ids: Iterable[UniqueIdentifier] = None
+                 init_state: Dict[int, UniqueIdentifier] = None
                  ):
         self._id = id or uuid.uuid4()
         self._processor: cps.IChannelProcessor = processor
         self._capacity: int = capacity
         self._state: List[Optional[UniqueIdentifier]] = [None for _ in range(self._capacity)]
 
-        if init_ids is not None:
-            self.store(init_ids)
+        if init_state is not None:
+            for ind, val in init_state.items():
+                self._state[ind] = val
 
     def store(self,
              ids: Iterable[UniqueIdentifier]):
@@ -51,6 +72,15 @@ class Channel:
     @property
     def State(self) -> List[Optional[UniqueIdentifier]]:
         return self._state
+
+    @property
+    def PopulatedIdxs(self) -> Dict[int, UniqueIdentifier]:
+        ret = {}
+        for ii, val in enumerate(self._state):
+            if val is not None:
+                ret[ii] = val
+
+        return ret
 
     @property
     def StoredIds(self) -> List[UniqueIdentifier]:

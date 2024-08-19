@@ -1,6 +1,7 @@
 from typing import Protocol, Iterable, List, Hashable, Dict, Optional
 import logging
 import unittest
+from cooptools.coopEnum import CoopEnum
 
 logger = logging.getLogger(__name__)
 
@@ -421,6 +422,18 @@ class MyTestCases(unittest.TestCase):
         self.assertRaises(ItemNotAccessibleToRemoveException, lambda: cp.process(state=new_state,
                                removed=['a']))
 
+
+class ChannelProcessorType(CoopEnum):
+    AllAvailableFlowBackwardChannelProcessor = AllAvailableFlowBackwardChannelProcessor()
+    AllAvailableFlowChannelProcessor = AllAvailableFlowChannelProcessor()
+    AllAvailableChannelProcessor = AllAvailableChannelProcessor()
+    FIFOFlowBackwardChannelProcessor = FIFOFlowBackwardChannelProcessor()
+    FIFOFlowChannelProcessor = FIFOFlowChannelProcessor()
+    LIFOFlowBackwardChannelProcessor = LIFOFlowBackwardChannelProcessor()
+    LIFOFlowChannelProcessor = LIFOFlowChannelProcessor()
+    OMNIChannelProcessor = OMNIFlowChannelProcessor()
+    OMNIFlowChannelProcessor = OMNIFlowChannelProcessor()
+    OMNIFlowBackwardChannelProcessor = OMNIFlowBackwardChannelProcessor
 
 if __name__ == "__main__":
     unittest.main()

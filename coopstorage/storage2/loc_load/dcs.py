@@ -64,6 +64,14 @@ class LocationMeta(BaseDataClass):
     boundary: IterVec = None
     capacity: int = 1
 
+    def __post_init__(self):
+        if type(self.channel_processor) == str:
+            object.__setattr__(self, 'channel_processor', cps.ChannelProcessorType.by_str(self.channel_processor).value)
+
+    def to_jsonable_dict(self):
+        ret = asdict(self)
+        ret.update({'channel_processor': type(self.channel_processor).__name__})
+        return ret
 
 if __name__ == "__main__":
     from pprint import pprint

@@ -3,10 +3,9 @@ import uuid
 
 import coopstorage.storage2.loc_load.dcs as dcs
 from cooptools.protocols import UniqueIdentifier
-from typing import List, Optional, Dict, Iterable
+from typing import List, Optional, Dict, Iterable, Self
 from cooptools.geometry_utils import vector_utils as vec
 from coopstorage.storage2.loc_load.channel import Channel
-from cooptools.register import Register
 
 logger = logging.getLogger(__name__)
 
@@ -14,14 +13,16 @@ class Location:
     def __init__(self,
                  id: UniqueIdentifier,
                  location_meta: dcs.LocationMeta,
-                 coords: vec.FloatVec):
+                 coords: vec.FloatVec,
+                 channel_state: Dict[int, UniqueIdentifier] = None):
         self._id = id
         self._coords: vec.FloatVec = coords
         self._meta = location_meta
         self._channel: Channel = Channel(
             processor=location_meta.channel_processor,
             id=f"{id}_channel",
-            capacity=location_meta.capacity
+            capacity=location_meta.capacity,
+            init_state=channel_state
         )
         self._reservation_token = None
 
@@ -91,10 +92,29 @@ class Location:
         return {k.Id: [ld.id for ld in v] for k, v in self.LocLoads.items()}
 
     def __repr__(self):
-        return f"{self._id}: {self.LoadIds}"
+        return f"{self._id}: {self.LoadPositions}"
 
     def get_id(self) -> UniqueIdentifier:
         return self._id
+
+    def to_jsonable_dict(self):
+        return {
+            'id': str(self._id),
+            'meta': self._meta.to_jsonable_dict(),
+            'channel': {str(k): v for k, v in self._channel.PopulatedIdxs.items()},
+            'coords': self._coords
+        }
+
+    @classmethod
+    def from_jsonable_dict(cls, data: Dict) -> Self:
+        return Location(
+            id=data['id'],
+            location_meta=dcs.LocationMeta(**data['meta']),
+            coords=data['coords'],
+            channel_state={int(k): v for k, v in data['channel'].items()}
+        )
+
+
 if __name__ == "__main__":
     import coopstorage.storage2.loc_load.channel_processors as cps
     logging.basicConfig(level=logging.DEBUG)
