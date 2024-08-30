@@ -4,11 +4,21 @@ import coopstorage.storage2.loc_load.qualifiers as lq
 from coopstorage.storage2.loc_load.location import Location
 import logging
 from pprint import pformat
+from typing import Self, Dict
 
 logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class TransferRequestCriteria(dcs.BaseIdentifiedDataClass):
+    load_query_args: lq.LoadQualifier = None
+    source_loc_query_args: lq.LocationQualifier = None
+    dest_loc_query_args: lq.LocationQualifier = None
+    new_load: dcs.Load = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class TransferRequest(dcs.BaseIdentifiedDataClass):
+    criteria: TransferRequestCriteria
     load: dcs.Load = None
     source_loc: Location = None
     dest_loc: Location = None
@@ -53,37 +63,33 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
 
         return True
 
-    def handle(self):
-
-        source_txt = ""
-        if self.source_loc is not None:
-            self.source_loc.remove_loads(
-                load_ids=[self.load.id]
-            )
-            source_txt = f" from {self.source_loc.Id}"
-
-        dest_txt = ""
-        if self.dest_loc is not None:
-            self.dest_loc.store_loads(
-                load_ids=[self.load.id]
-            )
-            dest_txt = f" to {self.dest_loc.Id}"
-
-        logger.info(f"Load {self.load.id} transferred{source_txt}{dest_txt}")
-
-
     def __post_init__(self):
+        if type(self.dest_loc) == dict:
+            object.__setattr__(self, 'dest_loc', Location(**self.dest_loc))
+
+        if type(self.source_loc) == dict:
+            object.__setattr__(self, 'source_loc', Location(**self.source_loc))
+
         self.verify()
 
     def id(self):
         return self.id
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class TransferRequestCriteria(dcs.BaseIdentifiedDataClass):
-    load_query_args: lq.LoadQualifier = None
-    source_loc_query_args: lq.LocationQualifier = None
-    dest_loc_query_args: lq.LocationQualifier = None
-    new_load: dcs.Load = None
+    @classmethod
+    def to_jsonable_dict(cls, obj: Self) -> Dict:
+        return {
+            'id': obj.get_id(),
+            'criteria': asdict(obj.criteria),
+            'load': asdict(obj.load),
+            'source_loc': Location.to_jsonable_dict(obj.source_loc) if obj.source_loc else "",
+            'dest_loc': Location.to_jsonable_dict(obj.dest_loc) if obj.dest_loc else ""
+        }
 
-
-
+    @classmethod
+    def from_jsonable_dict(cls, obj: Dict) -> Self:
+        return TransferRequest(
+            criteria=TransferRequestCriteria(**obj['criteria']),
+            load=dcs.Load(**obj['load']),
+            source_loc=Location.from_jsonable_dict(obj['source_loc']),
+            dest_loc=Location.from_jsonable_dict(obj['dest_loc'])
+        )

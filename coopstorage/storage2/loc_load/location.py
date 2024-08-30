@@ -97,12 +97,13 @@ class Location:
     def get_id(self) -> UniqueIdentifier:
         return self._id
 
-    def to_jsonable_dict(self):
+    @classmethod
+    def to_jsonable_dict(cls, obj: Self) -> Dict:
         return {
-            'id': str(self._id),
-            'meta': self._meta.to_jsonable_dict(),
-            'channel': {str(k): v for k, v in self._channel.PopulatedIdxs.items()},
-            'coords': self._coords
+            'id': str(obj._id),
+            'meta': obj._meta.to_jsonable_dict(),
+            'channel': {str(k): v for k, v in obj._channel.PopulatedIdxs.items()},
+            'coords': obj._coords
         }
 
     @classmethod

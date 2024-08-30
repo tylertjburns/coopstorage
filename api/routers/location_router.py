@@ -8,7 +8,7 @@ logger = logging.getLogger('locations_router')
 
 
 def location_router_factory(storage: Storage):
-    create_location_cb: hrh.postRequestCallback = lambda req, T: storage.add_locations(T.locations)
+    create_location_cb: hrh.postRequestCallback = lambda req, T: storage.add_locations(T.location_data_store)
     delete_location_cb: hrh.deleteRequestCallback = lambda req, id: storage.remove_locations(locations=[
         storage.location_by_id(id)
     ])
