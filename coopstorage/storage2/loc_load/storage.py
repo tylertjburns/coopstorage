@@ -14,6 +14,7 @@ from coopstorage.storage2.loc_load.transferRequest import TransferRequestCriteri
 import cooptools.common as comm
 from pprint import pprint
 from coopstorage.storage2.loc_load import data as data
+from cooptools.qualifiers import PatternMatchQualifier
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +22,12 @@ RESERVATION_KEY = '006ddd91-73a5-4075-b49b-baa3077d5b4a'
 
 class Storage:
     def __init__(self,
-                 data_store: data.StorageDataStore,
+                 data_store: data.StorageDataStore = None,
                  loads: Iterable[dcs.Load] = None,
                  locs: Iterable[Location] = None,
                  id: UniqueIdentifier = None):
 
-        self._data_store = data_store
+        self._data_store = data_store if data_store is not None else data.StorageDataStore()
 
         self._id = id or uuid.uuid4()
         self.register_locs(locs)
@@ -35,7 +36,7 @@ class Storage:
     @staticmethod
     def from_meta(location_type_counts: Iterable[Tuple[dcs.LocationMeta, int]],
                   naming_provider: Callable[[int], str],
-                  data_store: data.StorageDataStore,
+                  data_store: data.StorageDataStore = None,
                   id: UniqueIdentifier = None
                   ):
         locations = []
@@ -54,30 +55,39 @@ class Storage:
 
 
     def _verify_load(self, id: UniqueIdentifier):
-        if not id in self._data_store.loads_data_store:
+        if not id in self._data_store.LoadsData.get():
             raise errs.UnknownLoadIdException(id)
 
     def _verify_loc(self, id: UniqueIdentifier):
-        if id not in self._data_store.location_data_store:
+        if id not in self._data_store.LocationsData.get():
             raise errs.UnknownLocationIdException(id)
 
     def register_locs(self, locs: Iterable[Location]=None):
         if locs is not None:
-            self._data_store.location_data_store.add(locs)
+            self._data_store.LocationsData.add(locs)
         return self
+
+    def get_locs(self,
+                 criteria: qs.LocationQualifier=None) -> Dict[UniqueIdentifier, Location]:
+        return self._data_store.LocationsData.get(criteria)
 
     def register_loads(self, loads: Iterable[dcs.Load]=None):
         if loads is not None:
-            self._data_store.loads_data_store.add(loads)
+            self._data_store.LoadsData.add(loads)
         return self
+
+    def get_loads(self,
+                  criteria: qs.LoadQualifier=None)->Dict[UniqueIdentifier, dcs.Load]:
+        return self._data_store.LoadsData.get(criteria)
+
 
     def filter(self,
                filter: qs.LocationQualifier=None) -> List[Location]:
         if filter is None:
-            return list(self._data_store.location_data_store.get().values())
+            return list(self._data_store.LocationsData.get().values())
 
         # Filter based on location criteria
-        ret = comm.filter(self._data_store.location_data_store.get().values(),
+        ret = comm.filter(self._data_store.LocationsData.get().values(),
                           qualifier=filter.check_if_qualifies)
 
         return ret
@@ -90,9 +100,9 @@ class Storage:
             x: evaluator(x) for x in options
         }
 
-    def select(self,
-               filter: qs.LocationQualifier = None,
-               evaluator: Callable[[Location], float] = lambda x: 1):
+    def select_location(self,
+                        filter: qs.LocationQualifier = None,
+                        evaluator: Callable[[Location], float] = lambda x: 1):
         # Get filtered options
         options = self.filter(
             filter=filter
@@ -116,14 +126,14 @@ class Storage:
     ) -> TransferRequest:
         source = None
         if criteria.source_loc_query_args is not None:
-            source = self.select(criteria.source_loc_query_args)
+            source = self.select_location(criteria.source_loc_query_args)
 
         dest = None
         if criteria.dest_loc_query_args is not None:
-            dest = self.select(criteria.dest_loc_query_args)
+            dest = self.select_location(criteria.dest_loc_query_args)
         elif criteria.new_load is not None and \
             criteria.dest_loc_query_args is None:
-            dest = self.select()
+            dest = self.select_location()
 
 
         load = None
@@ -134,9 +144,9 @@ class Storage:
             criteria.new_load is not None:
             load = criteria.new_load
         elif criteria.load_query_args is not None and source is None:
-            load = comm.filter(self._data_store.loads_data_store.get().values(),
+            load = comm.filter(self._data_store.LoadsData.get().values(),
                                criteria.load_query_args.check_if_qualifies)[0]
-            source = self.select(filter=qs.LocationQualifier(
+            source = self.select_location(filter=qs.LocationQualifier(
                 all_loads=[criteria.load_query_args]
             ))
         elif source is not None:
@@ -161,14 +171,14 @@ class Storage:
                                  transfer_request: TransferRequest):
         source_txt = ""
         if transfer_request.source_loc is not None:
-            self._data_store.location_data_store.update([self._data_store.location_data_store.get(ids=[transfer_request.source_loc.get_id()])[transfer_request.source_loc.get_id()]
-                                                        .remove_loads(load_ids=[transfer_request.load.id])]
-                                                        )
+            self._data_store.LocationsData.update([self._data_store.LocationsData.get(ids=[transfer_request.source_loc.get_id()])[transfer_request.source_loc.get_id()]
+                                                  .remove_loads(load_ids=[transfer_request.load.id])]
+                                                  )
             source_txt = f" from {transfer_request.source_loc.Id}"
 
         dest_txt = ""
         if transfer_request.dest_loc is not None:
-            self._data_store.location_data_store.update([self._data_store.location_data_store.get(ids=[transfer_request.dest_loc.get_id()])[transfer_request.dest_loc.get_id()].store_loads(
+            self._data_store.LocationsData.update([self._data_store.LocationsData.get(ids=[transfer_request.dest_loc.get_id()])[transfer_request.dest_loc.get_id()].store_loads(
                 load_ids=[transfer_request.load.id]
             )])
             dest_txt = f" to {transfer_request.dest_loc.Id}"
@@ -181,25 +191,25 @@ class Storage:
             request = self.resolve_transfer_request_criteria(
                 criteria=criteria
             )
-            self._data_store.transfer_request_data_store.add([request])
-            self._data_store.loads_data_store.add_or_update(items=[request.load])
+            self._data_store.TransferRequestsData.add([request])
+            self._data_store.LoadsData.add_or_update(loads=[request.load])
 
             if request.Ready:
                 self._handle_transfer_request(request)
-                self._data_store.transfer_request_data_store.remove(items=[request])
+                self._data_store.TransferRequestsData.remove(items=[request])
             else:
                 logger.error(f"{pprint.pformat(request)}")
                 raise NotImplementedError()
 
     @property
     def Loads(self) -> List[dcs.Load]:
-        return list(self._data_store.loads_data_store.get().values())
+        return list(self._data_store.LoadsData.get().values())
 
     @property
     def LoadLocs(self) -> Dict[dcs.Load, Location]:
         ret = {}
-        loc_map = self._data_store.location_data_store.get()
-        load_map = self._data_store.loads_data_store.get()
+        loc_map = self._data_store.LocationsData.get()
+        load_map = self._data_store.LoadsData.get()
         for id, loc in loc_map.items():
             for load_id in loc.LoadIds:
                 ret[load_map[load_id]] = loc
@@ -209,10 +219,14 @@ class Storage:
     @property
     def LocLoads(self) -> Dict[Location, List[dcs.Load]]:
         ret = {}
-        for id, loc in self._data_store.location_data_store.get().items():
-            ret[loc] = list(self._data_store.loads_data_store.get(ids=loc.LoadIds).values())
+        for id, loc in self._data_store.LocationsData.get().items():
+            ret[loc] = list(self._data_store.LoadsData.get(ids=loc.LoadIds).values())
 
         return ret
+
+    @property
+    def Locations(self) -> List[Location]:
+        return self._data_store.LocationsData.get()
 
     def summary(self) -> Dict[UniqueIdentifier, List[UniqueIdentifier]]:
         try:
@@ -227,6 +241,7 @@ if __name__ == "__main__":
     from cooptools.common import LETTERS
     from cooptools.randoms import a_string
     import coopstorage.storage2.loc_load.channel_processors as cps
+    from coopstorage.storage2mongo import TEST_DATA
     logging.basicConfig(level=logging.INFO)
     from coopstorage.storage2.loc_load.data import MongoCollectionDataStore
 
@@ -282,14 +297,14 @@ if __name__ == "__main__":
                     new_load=dcs.Load(id=4),
                     dest_loc_query_args=qs.LocationQualifier(
                         at_least_capacity=2,
-                        pattern=dcs.PatternMatchQuery(
+                        id_pattern=PatternMatchQualifier(
                             regex='(g|e)'
                         )
                     )
                 ),
                 TransferRequestCriteria(
                     load_query_args=qs.LoadQualifier(
-                      pattern=dcs.PatternMatchQuery(
+                      pattern=PatternMatchQualifier(
                           id=1
                       )
                     )
@@ -301,7 +316,7 @@ if __name__ == "__main__":
         pprint(s.LocLoads)
 
     def test_002():
-        data.TEST_DATA.clear()
+        TEST_DATA.clear()
 
         s = Storage.from_meta(
             location_type_counts=[(dcs.LocationMeta(
@@ -310,7 +325,7 @@ if __name__ == "__main__":
                 capacity=3
             ), 100)],
             naming_provider=lambda x: a_string(k=7),
-            data_store=data.TEST_DATA,
+            data_store=TEST_DATA,
         )
 
 
@@ -339,14 +354,14 @@ if __name__ == "__main__":
                     new_load=dcs.Load(id=4),
                     dest_loc_query_args=qs.LocationQualifier(
                         at_least_capacity=2,
-                        pattern=dcs.PatternMatchQuery(
+                        id_pattern=PatternMatchQualifier(
                             regex='^b'
                         )
                     )
                 ),
                 TransferRequestCriteria(
                     load_query_args=qs.LoadQualifier(
-                      pattern=dcs.PatternMatchQuery(
+                      pattern=PatternMatchQualifier(
                           id=1
                       )
                     )

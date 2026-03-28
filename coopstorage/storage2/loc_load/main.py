@@ -1,4 +1,4 @@
-from typing import Union, Tuple, Iterable
+from typing import Union, Tuple, Iterable, List
 from fastapi import FastAPI, Response
 from pydantic import BaseModel
 from coopstorage.storage2.loc_load.transferRequest import TransferRequestCriteria
@@ -8,20 +8,15 @@ from cooptools.common import LETTERS
 import coopstorage.storage2.loc_load.dcs as dcs
 import coopstorage.storage2.loc_load.channel_processors as cps
 import logging
+from coopstorage.storage2.loc_load.data.storageDataStore import StorageDataStore
+from pprint import pprint
+from coopstorage.storage2.loc_load import qualifiers as qs
 
 logger = logging.getLogger(__name__)
 app = FastAPI()
 
 storage = Storage(
-    locs=[
-        Location(id=LETTERS[ii],
-                 location_meta=dcs.LocationMeta(
-                     dims=(10, 10, 10),
-                     channel_processor=cps.FIFOFlowChannelProcessor(),
-                     capacity=3
-                 ),
-                 coords=(100, 200, 300)
-                 ) for ii in range(10)],
+    data_store=StorageDataStore()
 )
 
 
@@ -34,6 +29,41 @@ class Load(BaseModel):
 
 class TransferRequestAPIWrapper(BaseModel):
     requests: Iterable[TransferRequestCriteria]
+
+class CoordAPI(BaseModel):
+    x: float
+    y: float
+    z: float
+
+    def as_tuple(self):
+        return (self.x, self.y, self.z)
+
+class LocationMetaAPI(BaseModel):
+    dims: CoordAPI
+    channel_processor_type: str
+    capacity: int
+
+    def as_loc_meta(self) -> dcs.LocationMeta:
+        return dcs.LocationMeta(
+                dims=self.dims.as_tuple(),
+                channel_processor=cps.ChannelProcessorType.by_str(self.channel_processor_type),
+                capacity=self.capacity
+            )
+
+class LocationAPI(BaseModel):
+    id: str
+    meta: LocationMetaAPI
+    coords: CoordAPI
+
+    def as_loc(self) -> Location:
+        return Location(
+            id=self.id,
+            location_meta=self.meta.as_loc_meta(),
+            coords=self.coords.as_tuple()
+        )
+
+class LocationsRequestAPIWrapper(BaseModel):
+    locations: Iterable[LocationAPI]
 
 UOMS = {}
 LOADS = {}
@@ -59,38 +89,47 @@ def put_transfer_request(
 def read_root():
     return {"Hello": "World"}
 
-@app.get("/uoms/{uom}")
-def get_uom(uom: str):
-    return {"uom_name": uom,
-            "details": UOMS[uom]}
 
-@app.get("/uoms")
-def get_uoms():
-    return UOMS
+@app.get("/locations")
+def get_locations():
+    return storage.Locations
 
-@app.put("/uoms/{uom_name}")
-def put_uom(uom_name: str, uom: UnitOfMeasure):
-    print("UOM Put")
-    UOMS[uom_name] = uom
-    return {"uom_name": uom_name, "details": uom}
+@app.put("/locations")
+def put_locations(location_request: LocationsRequestAPIWrapper):
+    locs = [x.as_loc() for x in location_request.locations]
+    pprint(locs)
+    storage.register_locs(
+        locs=locs
+    ).get_locs(criteria=qs.LocationQualifier())
 
-@app.get("/loads/{lpn}")
-def get_load(lpn: str,):
-    return {"lpn": lpn,
-            "details": LOADS[lpn]}
+    msg = f"Locations {','.join(x.as_loc().get_id() for x in location_request.locations)} added successfully"
+    logger.info(msg)
+    return Response(
+        content=msg,
+        status_code=200
+    )
+@app.put("/locations/eg")
+def put_eg_locations():
+    return put_locations(
+        LocationsRequestAPIWrapper(
+            locations=[
+                LocationAPI(id=LETTERS[ii],
+                            meta=LocationMetaAPI(
+                                dims=CoordAPI(x=10, y=10, z=10),
+                                channel_processor_type=cps.ChannelProcessorType.FIFOFlowChannelProcessor.name,
+                                capacity=3
+                            ),
+                            coords=CoordAPI(x=100, y=200, z=300)
+                            ) for ii in range(10)]
+        )
+    )
 
-@app.get("/loads")
-def get_loads():
-    return LOADS
 
-@app.put("/loads/{lpn}")
-def put_load(lpn: str, load: Load):
-    LOADS[lpn] = load
-    return LOADS[lpn]
+
 
 if __name__ == "__main__":
     import uvicorn
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
     # put_uom("123", UnitOfMeasure(each_qty=1, dimensions=(10, 10, 10)))
     # put_uom("234", UnitOfMeasure(each_qty=1, dimensions=(20, 10, 10)))
     # put_uom("345", UnitOfMeasure(each_qty=1, dimensions=(30, 10, 10)))

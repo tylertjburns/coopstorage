@@ -26,7 +26,7 @@ class Api_Locations(Resource):
         return loc
 
     def _location_manifest(self, loc_ids: List[str] = None):
-        ret = [x.as_dict_payload() for x in self.inv.State.Locations]
+        ret = [x.as_dict_payload() for x in self.inv.State.LocationsData]
         if loc_ids:
             ret = [x for x in ret if x['id'] in loc_ids]
         return {DATA_HEADER: ret}

@@ -13,7 +13,7 @@ def location_router_factory(storage: Storage):
         storage.location_by_id(id)
     ])
     find_cb: hrh.getOneRequestCallback = lambda req, id: storage.location_by_id(id)
-    get_locations_cb: hrh.getManyRequestCallback = lambda req, query, count: storage.state.Locations
+    get_locations_cb: hrh.getManyRequestCallback = lambda req, query, count: storage.state.LocationsData
 
     location_router = ApiShell(target_schema=LocationsSchema,
                                on_post_callback=create_location_cb,
