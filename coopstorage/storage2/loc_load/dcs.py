@@ -1,6 +1,5 @@
 from cooptools.geometry_utils.vector_utils import FloatVec, IterVec
 from dataclasses import dataclass, field, asdict
-from coopstorage.my_dataclasses import UoMCapacity, Resource
 from typing import Dict, Optional, List, Union, Tuple, Iterable, Self
 import uuid
 from cooptools.geometry_utils import vector_utils as vec
@@ -9,15 +8,42 @@ import re
 from cooptools.protocols import UniqueIdentifier
 from cooptools.coopDataclass import BaseDataClass, BaseIdentifiedDataClass
 
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Resource(BaseDataClass):
+    name: str
+    description: str = None
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UnitOfMeasure(BaseDataClass):
     name: str
     dimensions: vec.FloatVec = field(default_factory=lambda: vec.homogeneous_vector(3, 1))
 
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class UoMCapacity(BaseDataClass):
+    uom: UnitOfMeasure
+    capacity: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LoadContent(BaseDataClass):
+    resource: Resource
+    uom: UnitOfMeasure
+    qty: float
+
+    def __post_init__(self):
+        if self.qty < 0:
+            raise ValueError(f"qty cannot be negative: {self.qty}")
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Load(BaseIdentifiedDataClass):
     uom: UnitOfMeasure = field(default_factory=lambda: UnitOfMeasure(name='EA'))
     weight: float = None
+    contents: frozenset = field(default_factory=frozenset)        # frozenset[LoadContent]
+    uom_capacities: frozenset = field(default_factory=frozenset)  # frozenset[UoMCapacity]
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class LoadPosition(BaseIdentifiedDataClass):

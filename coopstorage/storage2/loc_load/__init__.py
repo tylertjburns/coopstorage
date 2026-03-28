@@ -1,6 +1,7 @@
 from .channel import ChannelMeta, Channel, ChannelStateStore
 from .channel_processors import ChannelProcessorType, OMNIChannelProcessor, FIFOFlowChannelProcessor, FIFOFlowBackwardChannelProcessor, OMNIFlowChannelProcessor, OMNIFlowBackwardChannelProcessor, LIFOFlowBackwardChannelProcessor, LIFOFlowChannelProcessor, AllAvailableFlowBackwardChannelProcessor, AllAvailableFlowChannelProcessor, AllAvailableChannelProcessor, ItemNotAccessibleToRemoveException, ItemNotFoundToRemoveException, ItemBlockingToAddException, NoRoomToAddException
-from .dcs import Load, LoadPosition, LocationMeta, UoMCapacity
+from .dcs import Load, LoadContent, LoadPosition, LocationMeta, Resource, UnitOfMeasure, UoMCapacity
+from .load_state_mutations import add_content_to_load, remove_content_from_load
 from .exceptions import UnknownLoadIdException, UnknownLocationIdException, NoLocationsMatchFilterCriteriaException
 from .location import Location
 from .qualifiers import LocationQualifier, LoadQualifier
