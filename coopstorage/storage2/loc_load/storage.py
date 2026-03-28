@@ -1,5 +1,6 @@
 import logging
 import pprint
+import threading
 import uuid
 
 from cooptools.register import Register
@@ -27,6 +28,7 @@ class Storage:
                  locs: Iterable[Location] = None,
                  id: UniqueIdentifier = None):
 
+        self._lock = threading.RLock()
         self._data_store = data_store if data_store is not None else data.StorageDataStore()
 
         self._id = id or uuid.uuid4()
@@ -63,22 +65,26 @@ class Storage:
             raise errs.UnknownLocationIdException(id)
 
     def register_locs(self, locs: Iterable[Location]=None):
-        if locs is not None:
-            self._data_store.LocationsData.add(locs)
+        with self._lock:
+            if locs is not None:
+                self._data_store.LocationsData.add(locs)
         return self
 
     def get_locs(self,
                  criteria: qs.LocationQualifier=None) -> Dict[UniqueIdentifier, Location]:
-        return self._data_store.LocationsData.get(criteria)
+        with self._lock:
+            return self._data_store.LocationsData.get(criteria)
 
     def register_loads(self, loads: Iterable[dcs.Load]=None):
-        if loads is not None:
-            self._data_store.LoadsData.add(loads)
+        with self._lock:
+            if loads is not None:
+                self._data_store.LoadsData.add(loads)
         return self
 
     def get_loads(self,
                   criteria: qs.LoadQualifier=None)->Dict[UniqueIdentifier, dcs.Load]:
-        return self._data_store.LoadsData.get(criteria)
+        with self._lock:
+            return self._data_store.LoadsData.get(criteria)
 
 
     def filter(self,
@@ -186,20 +192,20 @@ class Storage:
         logger.info(f"Load {transfer_request.load.id} transferred{source_txt}{dest_txt}")
 
     def handle_transfer_requests(self, transfer_request_criteria: Iterable[TransferRequestCriteria]):
+        with self._lock:
+            for criteria in transfer_request_criteria:
+                request = self.resolve_transfer_request_criteria(
+                    criteria=criteria
+                )
+                self._data_store.TransferRequestsData.add([request])
+                self._data_store.LoadsData.add_or_update(loads=[request.load])
 
-        for criteria in transfer_request_criteria:
-            request = self.resolve_transfer_request_criteria(
-                criteria=criteria
-            )
-            self._data_store.TransferRequestsData.add([request])
-            self._data_store.LoadsData.add_or_update(loads=[request.load])
-
-            if request.Ready:
-                self._handle_transfer_request(request)
-                self._data_store.TransferRequestsData.remove(items=[request])
-            else:
-                logger.error(f"{pprint.pformat(request)}")
-                raise NotImplementedError()
+                if request.Ready:
+                    self._handle_transfer_request(request)
+                    self._data_store.TransferRequestsData.remove(items=[request])
+                else:
+                    logger.error(f"{pprint.pformat(request)}")
+                    raise NotImplementedError()
 
     @property
     def Loads(self) -> List[dcs.Load]:
