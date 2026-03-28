@@ -168,7 +168,7 @@ class IChannelProcessor(Protocol):
 
             '''Check if there is space in the channel'''
             if ((idx is None) or
-                    (not allow_replacement and len([x for x in new_state if x is not None]) + 1 > len(new_state))):
+                    (not allow_replacement and not cls._allow_push and len([x for x in new_state if x is not None]) + 1 > len(new_state))):
                 raise NoRoomToAddException(requested=item, state=new_state)
             '''Check if an item is present at position and it has not been signaled to allow push or replacement'''
             if new_state[idx] is not None and new_state[idx] != item and not allow_replacement and not cls._allow_push:
@@ -336,7 +336,7 @@ class OMNIChannelProcessor(IChannelProcessor):
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
-        return [0] if state[0] is None else []
+        return [i for i, x in enumerate(state) if x is None]
 
     @classmethod
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Hashable]:
@@ -353,7 +353,7 @@ class OMNIFlowChannelProcessor(IChannelProcessor):
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
-        return [0] if state[0] is None else []
+        return [i for i, x in enumerate(state) if x is None]
 
     @classmethod
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Hashable]:
@@ -372,7 +372,7 @@ class OMNIFlowBackwardChannelProcessor(IChannelProcessor):
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
-        return [0] if state[0] is None else []
+        return [0]
 
     @classmethod
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Hashable]:

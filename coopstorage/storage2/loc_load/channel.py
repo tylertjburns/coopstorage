@@ -63,7 +63,7 @@ class Channel:
             removable = self.get_removable_ids()
             if len(removable) == 0:
                 break
-            self._state = self._processor.process(state=self._state, removed=removable[0])
+            self._state = self._processor.process(state=self._state, removed=[list(removable.values())[0]])
 
         if len(self.StoredIds) > 0:
             raise ValueError(f'Should have cleared loads, but load remains')

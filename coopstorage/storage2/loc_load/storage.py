@@ -73,7 +73,10 @@ class Storage:
     def get_locs(self,
                  criteria: qs.LocationQualifier=None) -> Dict[UniqueIdentifier, Location]:
         with self._lock:
-            return self._data_store.LocationsData.get(criteria)
+            return self._data_store.LocationsData.get(
+                criteria,
+                load_provider=self._data_store.LoadsData.get
+            )
 
     def register_loads(self, loads: Iterable[dcs.Load]=None):
         with self._lock:
@@ -84,7 +87,7 @@ class Storage:
     def get_loads(self,
                   criteria: qs.LoadQualifier=None)->Dict[UniqueIdentifier, dcs.Load]:
         with self._lock:
-            return self._data_store.LoadsData.get(criteria)
+            return self._data_store.LoadsData.get(qualifier=criteria)
 
 
     def filter(self,
@@ -92,11 +95,11 @@ class Storage:
         if filter is None:
             return list(self._data_store.LocationsData.get().values())
 
-        # Filter based on location criteria
-        ret = comm.filter(self._data_store.LocationsData.get().values(),
-                          qualifier=filter.check_if_qualifies)
-
-        return ret
+        load_provider = self._data_store.LoadsData.get
+        return [
+            loc for loc in self._data_store.LocationsData.get().values()
+            if filter.check_if_qualifies(loc, load_provider=load_provider)
+        ]
 
 
     def evaluate(self,
@@ -202,7 +205,7 @@ class Storage:
 
                 if request.Ready:
                     self._handle_transfer_request(request)
-                    self._data_store.TransferRequestsData.remove(items=[request])
+                    self._data_store.TransferRequestsData.remove(requests=[request])
                 else:
                     logger.error(f"{pprint.pformat(request)}")
                     raise NotImplementedError()

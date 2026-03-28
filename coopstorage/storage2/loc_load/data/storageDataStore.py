@@ -15,14 +15,9 @@ class LoadDataStore:
     def get(self,
             ids: Iterable[UniqueIdentifier]=None,
             qualifier: qs.LoadQualifier=None) -> Dict[UniqueIdentifier, dcs.Load]:
+        ret = self._data_store.get(ids=ids, id_query=qualifier.pattern if qualifier is not None else None)
         if qualifier is not None:
-            ret = self._data_store.get(
-                id_query=qualifier.pattern
-            )
-        else:
-            ret = self._data_store.get(ids)
-
-        ret = {k:v for k, v in ret.items() if qualifier.check_if_qualifies(v)}
+            ret = {k: v for k, v in ret.items() if qualifier.check_if_qualifies(v)}
         return ret
 
     def clear(self) -> Self:
@@ -46,15 +41,16 @@ class LocationDataStore:
                  data_store: DataStoreProtocol):
         self._data_store = data_store
 
-    def get(self, qualifier: qs.LocationQualifier=None) -> Dict[UniqueIdentifier, Location]:
-        if qualifier is not None:
-            ret = self._data_store.get(
-                id_query=qualifier.id_pattern
-            )
-            ret = {k: v for k, v in ret.items() if qualifier.check_if_qualifies(v)}
-        else:
-            ret = self._data_store.get()
+    def get(self,
+            qualifier: qs.LocationQualifier = None,
+            ids: Iterable[UniqueIdentifier] = None,
+            load_provider: qs.LoadByIdProvider = None) -> Dict[UniqueIdentifier, Location]:
+        if ids is not None:
+            return self._data_store.get(ids=ids)
 
+        ret = self._data_store.get(id_query=qualifier.id_pattern if qualifier is not None else None)
+        if qualifier is not None:
+            ret = {k: v for k, v in ret.items() if qualifier.check_if_qualifies(v, load_provider=load_provider)}
         return ret
 
     def clear(self) -> Self:
@@ -63,6 +59,10 @@ class LocationDataStore:
 
     def add(self, locs: Iterable[Location]):
         self._data_store.add(locs)
+        return self
+
+    def update(self, locs: Iterable[Location]):
+        self._data_store.update(locs)
         return self
 
     def remove(self, locs: Iterable[Location]):
