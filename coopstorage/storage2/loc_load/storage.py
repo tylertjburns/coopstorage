@@ -162,8 +162,8 @@ class Storage:
     def select_load(self,
                     loc: Location,
                     filter: qs.LoadQualifier):
-        ret = comm.filter(loc.LoadIds,
-                          qualifier=filter)
+        loads = list(self._data_store.LoadsData.get(ids=loc.LoadIds).values())
+        ret = comm.filter(loads, qualifier=filter.check_if_qualifies)
         return ret[0]
 
 

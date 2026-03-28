@@ -433,7 +433,7 @@ class ChannelProcessorType(CoopEnum):
     LIFOFlowChannelProcessor = LIFOFlowChannelProcessor()
     OMNIChannelProcessor = OMNIFlowChannelProcessor()
     OMNIFlowChannelProcessor = OMNIFlowChannelProcessor()
-    OMNIFlowBackwardChannelProcessor = OMNIFlowBackwardChannelProcessor
+    OMNIFlowBackwardChannelProcessor = OMNIFlowBackwardChannelProcessor()
 
 if __name__ == "__main__":
     unittest.main()

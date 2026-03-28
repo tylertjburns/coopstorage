@@ -90,6 +90,6 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
         return TransferRequest(
             criteria=TransferRequestCriteria(**obj['criteria']),
             load=dcs.Load(**obj['load']),
-            source_loc=Location.from_jsonable_dict(obj['source_loc']),
-            dest_loc=Location.from_jsonable_dict(obj['dest_loc'])
+            source_loc=Location.from_jsonable_dict(obj['source_loc']) if obj.get('source_loc') else None,
+            dest_loc=Location.from_jsonable_dict(obj['dest_loc']) if obj.get('dest_loc') else None
         )

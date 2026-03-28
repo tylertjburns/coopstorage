@@ -1,59 +1,42 @@
 import logging
-from fastapi import APIRouter, Response
+from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import Dict, Tuple, Iterable
+from typing import Dict, List, Tuple, Iterable, Optional
 from coopstorage.storage2.loc_load.storage import Storage
 from coopstorage.storage2.loc_load import dcs
-from coopstorage.storage2.loc_load.qualifiers import LocationQualifier
 
 logger = logging.getLogger(__name__)
 
+
+class ApiLoad(BaseModel):
+    id: str
+    uom: Optional[str] = None
+    weight: Optional[float] = None
+
+
 class ApiLoads(BaseModel):
-    loads: Iterable[dcs.Load]
-
-class APIUnitOfMeasure(BaseModel):
-    name: str
-    each_qty: int = 1
-    dimensions: Tuple[float,float,float] = None
+    loads: List[ApiLoad]
 
 
-def load_router_factory(
-    storage: Storage
-):
+def load_router_factory(storage: Storage):
     load_router = APIRouter()
 
-    # @load_router.put("/uoms")
-    # def put_uom(uom: APIUnitOfMeasure):
-    #     print("UOM Put")
-    #     UOMS[uom.name] = uom
-    #     return UOMS[uom.name]
-    #
-    # @load_router.get("/uoms/{uom}")
-    # def get_uom(uom: str):
-    #     return {"uom_name": uom,
-    #             "details": UOMS[uom]}
-    #
-    # @load_router.get("/uoms")
-    # def get_uoms():
-    #     return UOMS
-
     @load_router.put("/loads")
-    def put_load(loads: ApiLoads):
-        # if load.uom not in UOMS.keys():
-        #     return Response(status_code=424,
-        #                     content={"error": f"UoM \'{load.uom}\' was provided, but was not found in UoM data store"})
-
-        ret = storage.register_loads(
-            loads=loads.loads
-        ).get_loads(criteria=qs.g)
-        return storage.
+    def put_load(body: ApiLoads):
+        loads = [dcs.Load(id=l.id) for l in body.loads]
+        storage.register_loads(loads=loads)
+        return {str(k): str(v) for k, v in storage.get_loads().items()}
 
     @load_router.get("/loads")
-    def get_loads() -> Dict[str, ApiLoad]:
-        return LOADS
+    def get_loads() -> Dict[str, str]:
+        return {str(k): str(v) for k, v in storage.get_loads().items()}
 
-    @load_router.get("/loads/{lpn}")
-    def get_load(lpn: str):
-        return LOADS[lpn]
+    @load_router.get("/loads/{load_id}")
+    def get_load(load_id: str):
+        loads = storage.get_loads()
+        if load_id not in loads:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=f"Load '{load_id}' not found")
+        return loads[load_id]
 
     return load_router
