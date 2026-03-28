@@ -1,2 +1,3 @@
-from coopstorage.storage2.api.routers.location_router import *
-from coopstorage.storage2.api.routers.load_router import *
+from .load_router import load_router_factory
+from .location_router import location_router_factory
+from .transfer_request_router import transfer_request_router_factory
