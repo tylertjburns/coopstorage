@@ -7,6 +7,7 @@ Covers:
 """
 import unittest
 
+from cooptools.qualifiers import WhiteBlackListQualifier
 from coopstorage.storage2.loc_load.dcs import (
     Container, ContainerContent, UoMCapacity, UnitOfMeasure, Resource
 )
@@ -180,6 +181,70 @@ class TestRemoveContentFromContainer(unittest.TestCase):
         result = remove_content_from_container(container, _content(qty=qty_to_remove))
         qty_after = next(iter(result.contents)).qty
         self.assertAlmostEqual(qty_before - qty_to_remove, qty_after)
+
+
+# ── resource_qualifier / uom_qualifier ────────────────────────────────────────
+
+class TestContainerQualifiers(unittest.TestCase):
+
+    def test_resource_whitelist_allows_whitelisted_resource(self):
+        qualifier = WhiteBlackListQualifier(white_list=[SKU_A])
+        container = Container(id="C1", resource_qualifier=qualifier)
+        result = add_content_to_container(container, [_content(resource=SKU_A, qty=1.0)])
+        self.assertEqual(len(result.contents), 1)
+
+    def test_resource_whitelist_rejects_non_whitelisted_resource(self):
+        qualifier = WhiteBlackListQualifier(white_list=[SKU_A])
+        container = Container(id="C1", resource_qualifier=qualifier)
+        with self.assertRaises(ValueError):
+            add_content_to_container(container, [_content(resource=SKU_B, qty=1.0)])
+
+    def test_resource_blacklist_rejects_blacklisted_resource(self):
+        qualifier = WhiteBlackListQualifier(black_list=[SKU_B])
+        container = Container(id="C1", resource_qualifier=qualifier)
+        with self.assertRaises(ValueError):
+            add_content_to_container(container, [_content(resource=SKU_B, qty=1.0)])
+
+    def test_resource_blacklist_allows_non_blacklisted_resource(self):
+        qualifier = WhiteBlackListQualifier(black_list=[SKU_B])
+        container = Container(id="C1", resource_qualifier=qualifier)
+        result = add_content_to_container(container, [_content(resource=SKU_A, qty=1.0)])
+        self.assertEqual(len(result.contents), 1)
+
+    def test_uom_whitelist_allows_whitelisted_uom(self):
+        qualifier = WhiteBlackListQualifier(white_list=[EACH])
+        container = Container(id="C1", uom_qualifier=qualifier)
+        result = add_content_to_container(container, [_content(uom=EACH, qty=1.0)])
+        self.assertEqual(len(result.contents), 1)
+
+    def test_uom_whitelist_rejects_non_whitelisted_uom(self):
+        qualifier = WhiteBlackListQualifier(white_list=[EACH])
+        container = Container(id="C1", uom_qualifier=qualifier)
+        with self.assertRaises(ValueError):
+            add_content_to_container(container, [_content(uom=BOX, qty=1.0)])
+
+    def test_uom_blacklist_rejects_blacklisted_uom(self):
+        qualifier = WhiteBlackListQualifier(black_list=[BOX])
+        container = Container(id="C1", uom_qualifier=qualifier)
+        with self.assertRaises(ValueError):
+            add_content_to_container(container, [_content(uom=BOX, qty=1.0)])
+
+    def test_qualifiers_preserved_after_add(self):
+        """resource_qualifier and uom_qualifier survive a round-trip through add_content_to_container."""
+        rq = WhiteBlackListQualifier(white_list=[SKU_A])
+        uq = WhiteBlackListQualifier(white_list=[EACH])
+        container = Container(id="C1", resource_qualifier=rq, uom_qualifier=uq)
+        result = add_content_to_container(container, [_content(qty=1.0)])
+        self.assertEqual(result.resource_qualifier, rq)
+        self.assertEqual(result.uom_qualifier, uq)
+
+    def test_qualifiers_still_enforced_after_first_add(self):
+        """Qualifiers are enforced on subsequent adds (after the first content round-trip)."""
+        rq = WhiteBlackListQualifier(white_list=[SKU_A])
+        container = Container(id="C1", resource_qualifier=rq)
+        container = add_content_to_container(container, [_content(resource=SKU_A, qty=1.0)])
+        with self.assertRaises(ValueError):
+            add_content_to_container(container, [_content(resource=SKU_B, qty=1.0)])
 
 
 if __name__ == "__main__":

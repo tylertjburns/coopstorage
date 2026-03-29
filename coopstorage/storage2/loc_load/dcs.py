@@ -6,6 +6,7 @@ from cooptools.geometry_utils import vector_utils as vec
 import coopstorage.storage2.loc_load.channel_processors as cps
 from cooptools.protocols import UniqueIdentifier
 from cooptools.coopDataclass import BaseDataClass, BaseIdentifiedDataClass
+from cooptools.qualifiers import WhiteBlackListQualifier
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -43,6 +44,8 @@ class Container(BaseIdentifiedDataClass):
     weight: float = None
     contents: frozenset = field(default_factory=frozenset)        # frozenset[ContainerContent]
     uom_capacities: frozenset = field(default_factory=frozenset)  # frozenset[UoMCapacity]
+    resource_qualifier: Optional[WhiteBlackListQualifier] = field(default=None, hash=False)
+    uom_qualifier: Optional[WhiteBlackListQualifier] = field(default=None, hash=False)
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class LoadPosition(BaseIdentifiedDataClass):

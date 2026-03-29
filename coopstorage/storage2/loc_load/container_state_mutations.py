@@ -54,6 +54,8 @@ def _rebuild_container(container: Container, new_contents: frozenset) -> Contain
         weight=container.weight,
         contents=new_contents,
         uom_capacities=container.uom_capacities,
+        resource_qualifier=container.resource_qualifier,
+        uom_qualifier=container.uom_qualifier,
     )
 
 
@@ -68,6 +70,22 @@ def add_content_to_container(container: Container, contents: List[ContainerConte
     new_contents = list(container.contents)
 
     for content in contents:
+        if container.resource_qualifier is not None:
+            result = container.resource_qualifier.qualify([content.resource])[content.resource]
+            if not result.result:
+                raise ValueError(
+                    f"Resource '{content.resource.name}' rejected by container '{container.id}' resource_qualifier: "
+                    f"{result.failure_reasons}"
+                )
+
+        if container.uom_qualifier is not None:
+            result = container.uom_qualifier.qualify([content.uom])[content.uom]
+            if not result.result:
+                raise ValueError(
+                    f"UoM '{content.uom.name}' rejected by container '{container.id}' uom_qualifier: "
+                    f"{result.failure_reasons}"
+                )
+
         if container.uom_capacities:
             cap = _capacity_for_uom(container, content.uom)
             if cap is None:
