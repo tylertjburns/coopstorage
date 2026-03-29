@@ -3,15 +3,15 @@ Tests for storage.py (Storage class)
 
 Covers:
 - register_locs / get_locs
-- register_loads / get_loads
+- register_containers / get_containers
 - filter with LocationQualifier
 - select_location
-- select_load
+- select_container
 - handle_transfer_requests: all 3 transfer types
-  1. new load → dest (no source)
+  1. new container → dest (no source)
   2. source → dest (move)
   3. source only (remove)
-- LoadLocs / LocLoads properties
+- ContainerLocs / LocContainers properties
 - from_meta factory
 - Thread safety (concurrent writes don't corrupt state)
 """
@@ -21,7 +21,7 @@ import unittest
 import coopstorage.storage2.loc_load.channel_processors as cps
 import coopstorage.storage2.loc_load.dcs as dcs
 from coopstorage.storage2.loc_load.location import Location
-from coopstorage.storage2.loc_load.qualifiers import LocationQualifier, LoadQualifier
+from coopstorage.storage2.loc_load.qualifiers import LocationQualifier, ContainerQualifier
 from coopstorage.storage2.loc_load.storage import Storage
 from coopstorage.storage2.loc_load.transferRequest import TransferRequestCriteria
 from coopstorage.storage2.loc_load.exceptions import NoLocationsMatchFilterCriteriaException
@@ -40,7 +40,7 @@ def _loc(loc_id, capacity=3):
     return Location(id=loc_id, location_meta=_meta(capacity), coords=(0, 0, 0))
 
 def _load(load_id):
-    return dcs.Load(id=load_id)
+    return dcs.Container(id=load_id)
 
 def _storage_with_locs(*loc_ids, capacity=3):
     s = Storage()
@@ -74,7 +74,7 @@ class TestRegisterAndGetLocs(unittest.TestCase):
         s.register_locs([_loc('A', capacity=5), _loc('B', capacity=1)])
         # Fill B so it has 0 available
         locs = s.get_locs()
-        locs['B'].store_loads(['X'])
+        locs['B'].store_containers(['X'])
         result = s.get_locs(criteria=LocationQualifier(at_least_capacity=2))
         self.assertIn('A', result)
         self.assertNotIn('B', result)
@@ -85,33 +85,33 @@ class TestRegisterAndGetLocs(unittest.TestCase):
         self.assertIs(result, s)
 
 
-# ── register_loads / get_loads ────────────────────────────────────────────────
+# ── register_containers / get_containers ──────────────────────────────────────
 
-class TestRegisterAndGetLoads(unittest.TestCase):
+class TestRegisterAndGetContainers(unittest.TestCase):
 
-    def test_register_single_load(self):
+    def test_register_single_container(self):
         s = Storage()
-        s.register_loads([_load('L1')])
-        loads = s.get_loads()
-        self.assertIn('L1', loads)
+        s.register_containers([_load('L1')])
+        containers = s.get_containers()
+        self.assertIn('L1', containers)
 
-    def test_register_multiple_loads(self):
+    def test_register_multiple_containers(self):
         s = Storage()
-        s.register_loads([_load('L1'), _load('L2'), _load('L3')])
-        self.assertEqual(len(s.get_loads()), 3)
+        s.register_containers([_load('L1'), _load('L2'), _load('L3')])
+        self.assertEqual(len(s.get_containers()), 3)
 
-    def test_get_loads_with_qualifier(self):
+    def test_get_containers_with_qualifier(self):
         s = Storage()
-        s.register_loads([_load('L1'), _load('X1')])
-        result = s.get_loads(
-            criteria=LoadQualifier(pattern=PatternMatchQualifier(regex='^L'))
+        s.register_containers([_load('L1'), _load('X1')])
+        result = s.get_containers(
+            criteria=ContainerQualifier(pattern=PatternMatchQualifier(regex='^L'))
         )
         self.assertIn('L1', result)
         self.assertNotIn('X1', result)
 
-    def test_register_loads_returns_self_for_chaining(self):
+    def test_register_containers_returns_self_for_chaining(self):
         s = Storage()
-        result = s.register_loads([_load('L1')])
+        result = s.register_containers([_load('L1')])
         self.assertIs(result, s)
 
 
@@ -149,42 +149,42 @@ class TestSelectLocation(unittest.TestCase):
             )
 
 
-# ── handle_transfer_requests: type 1 (new load → dest) ───────────────────────
+# ── handle_transfer_requests: type 1 (new container → dest) ──────────────────
 
-class TestTransferType1NewLoadToDest(unittest.TestCase):
+class TestTransferType1NewContainerToDest(unittest.TestCase):
 
-    def test_store_new_load_at_specific_dest(self):
+    def test_store_new_container_at_specific_dest(self):
         s = _storage_with_locs('A', 'B')
         s.handle_transfer_requests([
             TransferRequestCriteria(
-                new_load=_load('L1'),
+                new_container=_load('L1'),
                 dest_loc_query_args=LocationQualifier(
                     id_pattern=PatternMatchQualifier(regex='^A')
                 ),
             )
         ])
         locs = s.get_locs()
-        self.assertIn('L1', locs['A'].LoadIds)
+        self.assertIn('L1', locs['A'].ContainerIds)
 
-    def test_store_multiple_new_loads(self):
+    def test_store_multiple_new_containers(self):
         s = _storage_with_locs('A', 'B', 'C')
         s.handle_transfer_requests([
-            TransferRequestCriteria(new_load=_load('L1'), dest_loc_query_args=LocationQualifier(at_least_capacity=1)),
-            TransferRequestCriteria(new_load=_load('L2'), dest_loc_query_args=LocationQualifier(at_least_capacity=1)),
-            TransferRequestCriteria(new_load=_load('L3'), dest_loc_query_args=LocationQualifier(at_least_capacity=1)),
+            TransferRequestCriteria(new_container=_load('L1'), dest_loc_query_args=LocationQualifier(at_least_capacity=1)),
+            TransferRequestCriteria(new_container=_load('L2'), dest_loc_query_args=LocationQualifier(at_least_capacity=1)),
+            TransferRequestCriteria(new_container=_load('L3'), dest_loc_query_args=LocationQualifier(at_least_capacity=1)),
         ])
-        all_load_ids = {l.id for l in s.Loads}
-        self.assertEqual(all_load_ids, {'L1', 'L2', 'L3'})
+        all_container_ids = {l.id for l in s.Containers}
+        self.assertEqual(all_container_ids, {'L1', 'L2', 'L3'})
 
-    def test_load_registered_in_data_store(self):
+    def test_container_registered_in_data_store(self):
         s = _storage_with_locs('A')
         s.handle_transfer_requests([
             TransferRequestCriteria(
-                new_load=_load('L1'),
+                new_container=_load('L1'),
                 dest_loc_query_args=LocationQualifier(at_least_capacity=1),
             )
         ])
-        self.assertIn('L1', s.get_loads())
+        self.assertIn('L1', s.get_containers())
 
 
 # ── handle_transfer_requests: type 2 (source → dest) ─────────────────────────
@@ -193,10 +193,10 @@ class TestTransferType2SourceToDest(unittest.TestCase):
 
     def _setup(self):
         s = _storage_with_locs('SRC', 'DST')
-        # Pre-load a load into SRC
+        # Pre-load a container into SRC
         s.handle_transfer_requests([
             TransferRequestCriteria(
-                new_load=_load('L1'),
+                new_container=_load('L1'),
                 dest_loc_query_args=LocationQualifier(
                     id_pattern=PatternMatchQualifier(regex='^SRC')
                 ),
@@ -204,11 +204,11 @@ class TestTransferType2SourceToDest(unittest.TestCase):
         ])
         return s
 
-    def test_move_load_from_src_to_dst(self):
+    def test_move_container_from_src_to_dst(self):
         s = self._setup()
         s.handle_transfer_requests([
             TransferRequestCriteria(
-                load_query_args=LoadQualifier(pattern=PatternMatchQualifier(regex='^L1')),
+                container_query_args=ContainerQualifier(pattern=PatternMatchQualifier(regex='^L1')),
                 source_loc_query_args=LocationQualifier(
                     id_pattern=PatternMatchQualifier(regex='^SRC')
                 ),
@@ -218,14 +218,14 @@ class TestTransferType2SourceToDest(unittest.TestCase):
             )
         ])
         locs = s.get_locs()
-        self.assertNotIn('L1', locs['SRC'].LoadIds)
-        self.assertIn('L1', locs['DST'].LoadIds)
+        self.assertNotIn('L1', locs['SRC'].ContainerIds)
+        self.assertIn('L1', locs['DST'].ContainerIds)
 
     def test_source_empty_after_move(self):
         s = self._setup()
         s.handle_transfer_requests([
             TransferRequestCriteria(
-                load_query_args=LoadQualifier(),
+                container_query_args=ContainerQualifier(),
                 source_loc_query_args=LocationQualifier(
                     id_pattern=PatternMatchQualifier(regex='^SRC')
                 ),
@@ -235,44 +235,44 @@ class TestTransferType2SourceToDest(unittest.TestCase):
             )
         ])
         locs = s.get_locs()
-        self.assertEqual(locs['SRC'].LoadIds, [])
+        self.assertEqual(locs['SRC'].ContainerIds, [])
 
 
 # ── handle_transfer_requests: type 3 (remove from source) ────────────────────
 
 class TestTransferType3RemoveOnly(unittest.TestCase):
 
-    def test_remove_load_from_source(self):
+    def test_remove_container_from_source(self):
         s = _storage_with_locs('A')
-        # Put a load in
+        # Put a container in
         s.handle_transfer_requests([
             TransferRequestCriteria(
-                new_load=_load('L1'),
+                new_container=_load('L1'),
                 dest_loc_query_args=LocationQualifier(at_least_capacity=1),
             )
         ])
         # Remove it
         s.handle_transfer_requests([
             TransferRequestCriteria(
-                load_query_args=LoadQualifier(pattern=PatternMatchQualifier(regex='^L1')),
+                container_query_args=ContainerQualifier(pattern=PatternMatchQualifier(regex='^L1')),
                 source_loc_query_args=LocationQualifier(
                     id_pattern=PatternMatchQualifier(regex='^A')
                 ),
             )
         ])
         locs = s.get_locs()
-        self.assertEqual(locs['A'].LoadIds, [])
+        self.assertEqual(locs['A'].ContainerIds, [])
 
 
 # ── Properties ────────────────────────────────────────────────────────────────
 
 class TestStorageProperties(unittest.TestCase):
 
-    def _storage_with_load_at_loc(self):
+    def _storage_with_container_at_loc(self):
         s = _storage_with_locs('A', 'B')
         s.handle_transfer_requests([
             TransferRequestCriteria(
-                new_load=_load('L1'),
+                new_container=_load('L1'),
                 dest_loc_query_args=LocationQualifier(
                     id_pattern=PatternMatchQualifier(regex='^A')
                 ),
@@ -280,28 +280,28 @@ class TestStorageProperties(unittest.TestCase):
         ])
         return s
 
-    def test_loads_property(self):
-        s = self._storage_with_load_at_loc()
-        self.assertEqual(len(s.Loads), 1)
-        self.assertEqual(s.Loads[0].id, 'L1')
+    def test_containers_property(self):
+        s = self._storage_with_container_at_loc()
+        self.assertEqual(len(s.Containers), 1)
+        self.assertEqual(s.Containers[0].id, 'L1')
 
     def test_locations_property(self):
         s = _storage_with_locs('A', 'B', 'C')
         self.assertEqual(len(s.Locations), 3)
 
-    def test_loc_loads_property(self):
-        s = self._storage_with_load_at_loc()
-        loc_loads = s.LocLoads
-        a_loc = next(loc for loc in loc_loads if loc.Id == 'A')
-        loads_at_a = loc_loads[a_loc]
-        self.assertEqual(len(loads_at_a), 1)
-        self.assertEqual(loads_at_a[0].id, 'L1')
+    def test_loc_containers_property(self):
+        s = self._storage_with_container_at_loc()
+        loc_containers = s.LocContainers
+        a_loc = next(loc for loc in loc_containers if loc.Id == 'A')
+        containers_at_a = loc_containers[a_loc]
+        self.assertEqual(len(containers_at_a), 1)
+        self.assertEqual(containers_at_a[0].id, 'L1')
 
-    def test_load_locs_property(self):
-        s = self._storage_with_load_at_loc()
-        load_locs = s.LoadLocs
-        l1 = next(load for load in load_locs if load.id == 'L1')
-        self.assertEqual(load_locs[l1].Id, 'A')
+    def test_container_locs_property(self):
+        s = self._storage_with_container_at_loc()
+        container_locs = s.ContainerLocs
+        l1 = next(container for container in container_locs if container.id == 'L1')
+        self.assertEqual(container_locs[l1].Id, 'A')
 
 
 # ── from_meta factory ─────────────────────────────────────────────────────────
@@ -352,14 +352,14 @@ class TestFromMeta(unittest.TestCase):
 
 class TestThreadSafety(unittest.TestCase):
 
-    def test_concurrent_register_loads(self):
-        """Many threads registering loads concurrently should not lose any."""
+    def test_concurrent_register_containers(self):
+        """Many threads registering containers concurrently should not lose any."""
         s = Storage()
         errors = []
 
         def register(load_id):
             try:
-                s.register_loads([_load(load_id)])
+                s.register_containers([_load(load_id)])
             except Exception as e:
                 errors.append(e)
 
@@ -370,7 +370,7 @@ class TestThreadSafety(unittest.TestCase):
             t.join()
 
         self.assertEqual(len(errors), 0)
-        self.assertEqual(len(s.get_loads()), 50)
+        self.assertEqual(len(s.get_containers()), 50)
 
 
 if __name__ == "__main__":

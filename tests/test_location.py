@@ -3,7 +3,7 @@ Tests for location.py
 
 Covers:
 - Location creation and basic properties
-- store_loads / remove_loads
+- store_containers / remove_containers
 - Capacity and AvailableCapacity
 - Reservation system
 - FIFO/LIFO access rules via channel processor
@@ -67,7 +67,7 @@ class TestLocationCreation(unittest.TestCase):
 
     def test_starts_empty(self):
         loc = _fifo_loc()
-        self.assertEqual(loc.LoadIds, [])
+        self.assertEqual(loc.ContainerIds, [])
         self.assertEqual(loc.AvailableCapacity, 3)
 
     def test_not_reserved_by_default(self):
@@ -75,79 +75,79 @@ class TestLocationCreation(unittest.TestCase):
         self.assertFalse(loc.Reserved)
 
 
-# ── store_loads ───────────────────────────────────────────────────────────────
+# ── store_containers ───────────────────────────────────────────────────────────────
 
 class TestStoreLoads(unittest.TestCase):
 
     def test_store_single_load(self):
         loc = _fifo_loc()
-        loc.store_loads(['L1'])
-        self.assertIn('L1', loc.LoadIds)
+        loc.store_containers(['L1'])
+        self.assertIn('L1', loc.ContainerIds)
 
     def test_store_multiple_loads(self):
         loc = _all_avail_loc(capacity=5)
-        loc.store_loads(['L1', 'L2', 'L3'])
-        self.assertEqual(set(loc.LoadIds), {'L1', 'L2', 'L3'})
+        loc.store_containers(['L1', 'L2', 'L3'])
+        self.assertEqual(set(loc.ContainerIds), {'L1', 'L2', 'L3'})
 
     def test_available_capacity_decreases(self):
         loc = _fifo_loc(capacity=3)
-        loc.store_loads(['L1'])
+        loc.store_containers(['L1'])
         self.assertEqual(loc.AvailableCapacity, 2)
 
     def test_store_at_capacity_raises(self):
         loc = _fifo_loc(capacity=2)
-        loc.store_loads(['L1', 'L2'])
+        loc.store_containers(['L1', 'L2'])
         with self.assertRaises(NoRoomToAddException):
-            loc.store_loads(['L3'])
+            loc.store_containers(['L3'])
 
 
-# ── remove_loads ──────────────────────────────────────────────────────────────
+# ── remove_containers ──────────────────────────────────────────────────────────────
 
 class TestRemoveLoads(unittest.TestCase):
 
     def test_remove_load(self):
         loc = _all_avail_loc()
-        loc.store_loads(['L1', 'L2'])
-        loc.remove_loads(['L1'])
-        self.assertNotIn('L1', loc.LoadIds)
-        self.assertIn('L2', loc.LoadIds)
+        loc.store_containers(['L1', 'L2'])
+        loc.remove_containers(['L1'])
+        self.assertNotIn('L1', loc.ContainerIds)
+        self.assertIn('L2', loc.ContainerIds)
 
     def test_available_capacity_increases_after_remove(self):
         loc = _fifo_loc(capacity=3)
-        loc.store_loads(['L1', 'L2'])
-        loc.remove_loads(['L1'])
+        loc.store_containers(['L1', 'L2'])
+        loc.remove_containers(['L1'])
         self.assertEqual(loc.AvailableCapacity, 2)
 
     def test_fifo_removes_first_in_only(self):
         loc = _fifo_loc(capacity=3)
-        loc.store_loads(['L1', 'L2', 'L3'])
+        loc.store_containers(['L1', 'L2', 'L3'])
         # L1 was first in — should be removable
-        loc.remove_loads(['L1'])
-        self.assertNotIn('L1', loc.LoadIds)
+        loc.remove_containers(['L1'])
+        self.assertNotIn('L1', loc.ContainerIds)
 
     def test_fifo_cannot_remove_last_in(self):
         loc = _fifo_loc(capacity=3)
-        loc.store_loads(['L1', 'L2', 'L3'])
+        loc.store_containers(['L1', 'L2', 'L3'])
         with self.assertRaises(ItemNotAccessibleToRemoveException):
-            loc.remove_loads(['L3'])
+            loc.remove_containers(['L3'])
 
     def test_lifo_removes_last_in_only(self):
         loc = _lifo_loc(capacity=3)
-        loc.store_loads(['L1', 'L2', 'L3'])
-        loc.remove_loads(['L3'])
-        self.assertNotIn('L3', loc.LoadIds)
+        loc.store_containers(['L1', 'L2', 'L3'])
+        loc.remove_containers(['L3'])
+        self.assertNotIn('L3', loc.ContainerIds)
 
     def test_lifo_cannot_remove_first_in(self):
         loc = _lifo_loc(capacity=3)
-        loc.store_loads(['L1', 'L2', 'L3'])
+        loc.store_containers(['L1', 'L2', 'L3'])
         with self.assertRaises(ItemNotAccessibleToRemoveException):
-            loc.remove_loads(['L1'])
+            loc.remove_containers(['L1'])
 
-    def test_clear_loads(self):
+    def test_clear_containers(self):
         loc = _all_avail_loc()
-        loc.store_loads(['L1', 'L2', 'L3'])
-        loc.clear_loads()
-        self.assertEqual(loc.LoadIds, [])
+        loc.store_containers(['L1', 'L2', 'L3'])
+        loc.clear_containers()
+        self.assertEqual(loc.ContainerIds, [])
         self.assertEqual(loc.AvailableCapacity, loc.Capacity)
 
 
@@ -187,23 +187,23 @@ class TestLocationSerialization(unittest.TestCase):
         restored = Location.from_jsonable_dict(d)
         self.assertEqual(restored.Id, 'TEST-1')
         self.assertEqual(restored.Capacity, 4)
-        self.assertEqual(restored.LoadIds, [])
+        self.assertEqual(restored.ContainerIds, [])
 
     def test_round_trip_with_loads(self):
         loc = _all_avail_loc(capacity=5, loc_id='TEST-2')
-        loc.store_loads(['L1', 'L2'])
+        loc.store_containers(['L1', 'L2'])
         d = Location.to_jsonable_dict(loc)
         restored = Location.from_jsonable_dict(d)
-        self.assertEqual(set(restored.LoadIds), {'L1', 'L2'})
+        self.assertEqual(set(restored.ContainerIds), {'L1', 'L2'})
 
     def test_round_trip_channel_processor_type_preserved(self):
         loc = _lifo_loc(loc_id='LIFO-1')
         d = Location.to_jsonable_dict(loc)
         restored = Location.from_jsonable_dict(d)
         # LIFO: should still not allow removing first-in
-        restored.store_loads(['L1', 'L2'])
+        restored.store_containers(['L1', 'L2'])
         with self.assertRaises(ItemNotAccessibleToRemoveException):
-            restored.remove_loads(['L1'])
+            restored.remove_containers(['L1'])
 
 
 if __name__ == "__main__":

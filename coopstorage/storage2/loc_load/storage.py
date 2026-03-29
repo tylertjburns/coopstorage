@@ -24,7 +24,7 @@ RESERVATION_KEY = '006ddd91-73a5-4075-b49b-baa3077d5b4a'
 class Storage:
     def __init__(self,
                  data_store: data.StorageDataStore = None,
-                 loads: Iterable[dcs.Load] = None,
+                 containers: Iterable[dcs.Container] = None,
                  locs: Iterable[Location] = None,
                  id: UniqueIdentifier = None):
 
@@ -33,7 +33,7 @@ class Storage:
 
         self._id = id or uuid.uuid4()
         self.register_locs(locs)
-        self.register_loads(loads)
+        self.register_containers(containers)
 
     @staticmethod
     def from_meta(location_type_counts: Iterable[Tuple[dcs.LocationMeta, int]],
@@ -56,8 +56,8 @@ class Storage:
         )
 
 
-    def _verify_load(self, id: UniqueIdentifier):
-        if not id in self._data_store.LoadsData.get():
+    def _verify_container(self, id: UniqueIdentifier):
+        if not id in self._data_store.ContainersData.get():
             raise errs.UnknownLoadIdException(id)
 
     def _verify_loc(self, id: UniqueIdentifier):
@@ -75,19 +75,19 @@ class Storage:
         with self._lock:
             return self._data_store.LocationsData.get(
                 criteria,
-                load_provider=self._data_store.LoadsData.get
+                container_provider=self._data_store.ContainersData.get
             )
 
-    def register_loads(self, loads: Iterable[dcs.Load]=None):
+    def register_containers(self, containers: Iterable[dcs.Container]=None):
         with self._lock:
-            if loads is not None:
-                self._data_store.LoadsData.add(loads)
+            if containers is not None:
+                self._data_store.ContainersData.add(containers)
         return self
 
-    def get_loads(self,
-                  criteria: qs.LoadQualifier=None)->Dict[UniqueIdentifier, dcs.Load]:
+    def get_containers(self,
+                  criteria: qs.ContainerQualifier=None)->Dict[UniqueIdentifier, dcs.Container]:
         with self._lock:
-            return self._data_store.LoadsData.get(qualifier=criteria)
+            return self._data_store.ContainersData.get(qualifier=criteria)
 
 
     def filter(self,
@@ -95,10 +95,10 @@ class Storage:
         if filter is None:
             return list(self._data_store.LocationsData.get().values())
 
-        load_provider = self._data_store.LoadsData.get
+        container_provider = self._data_store.ContainersData.get
         return [
             loc for loc in self._data_store.LocationsData.get().values()
-            if filter.check_if_qualifies(loc, load_provider=load_provider)
+            if filter.check_if_qualifies(loc, container_provider=container_provider)
         ]
 
 
@@ -140,39 +140,39 @@ class Storage:
         dest = None
         if criteria.dest_loc_query_args is not None:
             dest = self.select_location(criteria.dest_loc_query_args)
-        elif criteria.new_load is not None and \
+        elif criteria.new_container is not None and \
             criteria.dest_loc_query_args is None:
             dest = self.select_location()
 
 
-        load = None
-        if criteria.load_query_args is not None and source is not None:
-            load = self.select_load(loc=source,
-                                    filter=criteria.load_query_args)
-        elif criteria.load_query_args is None and \
-            criteria.new_load is not None:
-            load = criteria.new_load
-        elif criteria.load_query_args is not None and source is None:
-            load = comm.filter(self._data_store.LoadsData.get().values(),
-                               criteria.load_query_args.check_if_qualifies)[0]
+        container = None
+        if criteria.container_query_args is not None and source is not None:
+            container = self.select_container(loc=source,
+                                    filter=criteria.container_query_args)
+        elif criteria.container_query_args is None and \
+            criteria.new_container is not None:
+            container = criteria.new_container
+        elif criteria.container_query_args is not None and source is None:
+            container = comm.filter(self._data_store.ContainersData.get().values(),
+                               criteria.container_query_args.check_if_qualifies)[0]
             source = self.select_location(filter=qs.LocationQualifier(
-                all_loads=[criteria.load_query_args]
+                all_containers=[criteria.container_query_args]
             ))
         elif source is not None:
-            load = source.get_removable_load_ids()[0]
+            container = source.get_removable_container_ids()[0]
 
         return TransferRequest(
             criteria=criteria,
-            load=load,
+            container=container,
             source_loc=source,
             dest_loc=dest
         )
 
-    def select_load(self,
+    def select_container(self,
                     loc: Location,
-                    filter: qs.LoadQualifier):
-        loads = list(self._data_store.LoadsData.get(ids=loc.LoadIds).values())
-        ret = comm.filter(loads, qualifier=filter.check_if_qualifies)
+                    filter: qs.ContainerQualifier):
+        containers = list(self._data_store.ContainersData.get(ids=loc.ContainerIds).values())
+        ret = comm.filter(containers, qualifier=filter.check_if_qualifies)
         return ret[0]
 
 
@@ -181,18 +181,18 @@ class Storage:
         source_txt = ""
         if transfer_request.source_loc is not None:
             self._data_store.LocationsData.update([self._data_store.LocationsData.get(ids=[transfer_request.source_loc.get_id()])[transfer_request.source_loc.get_id()]
-                                                  .remove_loads(load_ids=[transfer_request.load.id])]
+                                                  .remove_containers(container_ids=[transfer_request.container.id])]
                                                   )
             source_txt = f" from {transfer_request.source_loc.Id}"
 
         dest_txt = ""
         if transfer_request.dest_loc is not None:
-            self._data_store.LocationsData.update([self._data_store.LocationsData.get(ids=[transfer_request.dest_loc.get_id()])[transfer_request.dest_loc.get_id()].store_loads(
-                load_ids=[transfer_request.load.id]
+            self._data_store.LocationsData.update([self._data_store.LocationsData.get(ids=[transfer_request.dest_loc.get_id()])[transfer_request.dest_loc.get_id()].store_containers(
+                container_ids=[transfer_request.container.id]
             )])
             dest_txt = f" to {transfer_request.dest_loc.Id}"
 
-        logger.info(f"Load {transfer_request.load.id} transferred{source_txt}{dest_txt}")
+        logger.info(f"Container {transfer_request.container.id} transferred{source_txt}{dest_txt}")
 
     def handle_transfer_requests(self, transfer_request_criteria: Iterable[TransferRequestCriteria]):
         with self._lock:
@@ -201,7 +201,7 @@ class Storage:
                     criteria=criteria
                 )
                 self._data_store.TransferRequestsData.add([request])
-                self._data_store.LoadsData.add_or_update(loads=[request.load])
+                self._data_store.ContainersData.add_or_update(containers=[request.container])
 
                 if request.Ready:
                     self._handle_transfer_request(request)
@@ -211,25 +211,25 @@ class Storage:
                     raise NotImplementedError()
 
     @property
-    def Loads(self) -> List[dcs.Load]:
-        return list(self._data_store.LoadsData.get().values())
+    def Containers(self) -> List[dcs.Container]:
+        return list(self._data_store.ContainersData.get().values())
 
     @property
-    def LoadLocs(self) -> Dict[dcs.Load, Location]:
+    def ContainerLocs(self) -> Dict[dcs.Container, Location]:
         ret = {}
         loc_map = self._data_store.LocationsData.get()
-        load_map = self._data_store.LoadsData.get()
+        container_map = self._data_store.ContainersData.get()
         for id, loc in loc_map.items():
-            for load_id in loc.LoadIds:
-                ret[load_map[load_id]] = loc
+            for container_id in loc.ContainerIds:
+                ret[container_map[container_id]] = loc
 
         return ret
 
     @property
-    def LocLoads(self) -> Dict[Location, List[dcs.Load]]:
+    def LocContainers(self) -> Dict[Location, List[dcs.Container]]:
         ret = {}
         for id, loc in self._data_store.LocationsData.get().items():
-            ret[loc] = list(self._data_store.LoadsData.get(ids=loc.LoadIds).values())
+            ret[loc] = list(self._data_store.ContainersData.get(ids=loc.ContainerIds).values())
 
         return ret
 
@@ -239,7 +239,7 @@ class Storage:
 
     def summary(self) -> Dict[UniqueIdentifier, List[UniqueIdentifier]]:
         try:
-            return {k.Id: [ld.id for ld in v] for k, v in self.LocLoads.items()}
+            return {k.Id: [ld.id for ld in v] for k, v in self.LocContainers.items()}
         except Exception as e:
             print(e)
             raise e
@@ -285,25 +285,25 @@ if __name__ == "__main__":
         s.handle_transfer_requests(
             transfer_request_criteria=[
                 TransferRequestCriteria(
-                    new_load=dcs.Load(id=1),
+                    new_container=dcs.Container(id=1),
                     dest_loc_query_args=qs.LocationQualifier(
                         at_least_capacity=1
                     )
                 ),
                 TransferRequestCriteria(
-                    new_load=dcs.Load(id=2),
+                    new_container=dcs.Container(id=2),
                     dest_loc_query_args=qs.LocationQualifier(
                         at_least_capacity=1
                     )
                 ),
                 TransferRequestCriteria(
-                    new_load=dcs.Load(id=3),
+                    new_container=dcs.Container(id=3),
                     dest_loc_query_args=qs.LocationQualifier(
                         at_least_capacity=2
                     )
                 ),
                 TransferRequestCriteria(
-                    new_load=dcs.Load(id=4),
+                    new_container=dcs.Container(id=4),
                     dest_loc_query_args=qs.LocationQualifier(
                         at_least_capacity=2,
                         id_pattern=PatternMatchQualifier(
@@ -312,7 +312,7 @@ if __name__ == "__main__":
                     )
                 ),
                 TransferRequestCriteria(
-                    load_query_args=qs.LoadQualifier(
+                    container_query_args=qs.ContainerQualifier(
                       pattern=PatternMatchQualifier(
                           id=1
                       )
@@ -321,8 +321,8 @@ if __name__ == "__main__":
             ]
         )
 
-        pprint(s.Loads)
-        pprint(s.LocLoads)
+        pprint(s.Containers)
+        pprint(s.LocContainers)
 
     def test_002():
         TEST_DATA.clear()
@@ -342,25 +342,25 @@ if __name__ == "__main__":
         s.handle_transfer_requests(
             transfer_request_criteria=[
                 TransferRequestCriteria(
-                    new_load=dcs.Load(id=1),
+                    new_container=dcs.Container(id=1),
                     dest_loc_query_args=qs.LocationQualifier(
                         at_least_capacity=1
                     )
                 ),
                 TransferRequestCriteria(
-                    new_load=dcs.Load(id=2),
+                    new_container=dcs.Container(id=2),
                     dest_loc_query_args=qs.LocationQualifier(
                         at_least_capacity=1
                     )
                 ),
                 TransferRequestCriteria(
-                    new_load=dcs.Load(id=3),
+                    new_container=dcs.Container(id=3),
                     dest_loc_query_args=qs.LocationQualifier(
                         at_least_capacity=2
                     )
                 ),
                 TransferRequestCriteria(
-                    new_load=dcs.Load(id=4),
+                    new_container=dcs.Container(id=4),
                     dest_loc_query_args=qs.LocationQualifier(
                         at_least_capacity=2,
                         id_pattern=PatternMatchQualifier(
@@ -369,7 +369,7 @@ if __name__ == "__main__":
                     )
                 ),
                 TransferRequestCriteria(
-                    load_query_args=qs.LoadQualifier(
+                    container_query_args=qs.ContainerQualifier(
                       pattern=PatternMatchQualifier(
                           id=1
                       )

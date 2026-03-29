@@ -4,19 +4,18 @@ from typing import Dict, Optional, List, Union, Tuple, Iterable, Self
 import uuid
 from cooptools.geometry_utils import vector_utils as vec
 import coopstorage.storage2.loc_load.channel_processors as cps
-import re
 from cooptools.protocols import UniqueIdentifier
 from cooptools.coopDataclass import BaseDataClass, BaseIdentifiedDataClass
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class Resource(BaseDataClass):
+class Resource(BaseIdentifiedDataClass):
     name: str
     description: str = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class UnitOfMeasure(BaseDataClass):
+class UnitOfMeasure(BaseIdentifiedDataClass):
     name: str
     dimensions: vec.FloatVec = field(default_factory=lambda: vec.homogeneous_vector(3, 1))
 
@@ -28,21 +27,21 @@ class UoMCapacity(BaseDataClass):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class LoadContent(BaseDataClass):
+class ContainerContent(BaseIdentifiedDataClass):
     resource: Resource
     uom: UnitOfMeasure
     qty: float
 
     def __post_init__(self):
-        if self.qty < 0:
+        if self.qty <= 0:
             raise ValueError(f"qty cannot be negative: {self.qty}")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class Load(BaseIdentifiedDataClass):
+class Container(BaseIdentifiedDataClass):
     uom: UnitOfMeasure = field(default_factory=lambda: UnitOfMeasure(name='EA'))
     weight: float = None
-    contents: frozenset = field(default_factory=frozenset)        # frozenset[LoadContent]
+    contents: frozenset = field(default_factory=frozenset)        # frozenset[ContainerContent]
     uom_capacities: frozenset = field(default_factory=frozenset)  # frozenset[UoMCapacity]
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -71,18 +70,18 @@ class LocationMeta(BaseDataClass):
 if __name__ == "__main__":
     from pprint import pprint
 
-    l1 = Load(id=1)
-    l2 = Load(id=2)
-    l3 = Load(id=3)
-    l4 = Load(id=4)
+    l1 = Container(id=1)
+    l2 = Container(id=2)
+    l3 = Container(id=3)
+    l4 = Container(id=4)
 
     def test_1():
         ls = ()
-        ls.add_loads([l1, l2, l3, l4])
+        ls.add_containers([l1, l2, l3, l4])
 
-        pprint(ls.LoadIds)
+        pprint(ls.ContainerIds)
 
-        ls.remove_loads(ids=[2])
+        ls.remove_containers(ids=[2])
 
-        pprint(ls.LoadIds)
+        pprint(ls.ContainerIds)
     test_1()

@@ -6,9 +6,9 @@ import cooptools.geometry_utils.vector_utils as vec
 from cooptools.qualifiers import PatternMatchQualifier
 from cooptools.protocols import UniqueIdentifier
 
-# Callable that retrieves Load objects for a given set of IDs.
-# Signature: (ids: Iterable[UniqueIdentifier]) -> Dict[UniqueIdentifier, dcs.Load]
-LoadByIdProvider = Callable[[Iterable[UniqueIdentifier]], Dict[UniqueIdentifier, dcs.Load]]
+# Callable that retrieves Container objects for a given set of IDs.
+# Signature: (ids: Iterable[UniqueIdentifier]) -> Dict[UniqueIdentifier, dcs.Container]
+ContainerByIdProvider = Callable[[Iterable[UniqueIdentifier]], Dict[UniqueIdentifier, dcs.Container]]
 
 
 def _pattern_qualifies(pattern: PatternMatchQualifier, value: str) -> bool:
@@ -29,22 +29,22 @@ def _dims_within_min(dims, min_dims) -> bool:
 
 
 @dataclass(frozen=True, slots=True)
-class LoadQualifier:
+class ContainerQualifier:
     pattern: Optional[PatternMatchQualifier] = None
     max_dims: Optional[vec.FloatVec] = None
     min_dims: Optional[vec.FloatVec] = None
 
-    def check_if_qualifies(self, load: dcs.Load) -> bool:
+    def check_if_qualifies(self, container: dcs.Container) -> bool:
         # Disqualify on Pattern
-        if self.pattern is not None and not _pattern_qualifies(self.pattern, str(load.id)):
+        if self.pattern is not None and not _pattern_qualifies(self.pattern, str(container.id)):
             return False
 
         # Disqualify on Max Dims
-        if self.max_dims is not None and not _dims_within_max(load.uom.dimensions, self.max_dims):
+        if self.max_dims is not None and not _dims_within_max(container.uom.dimensions, self.max_dims):
             return False
 
         # Disqualify on Min Dims
-        if self.min_dims is not None and not _dims_within_min(load.uom.dimensions, self.min_dims):
+        if self.min_dims is not None and not _dims_within_min(container.uom.dimensions, self.min_dims):
             return False
 
         return True
@@ -55,14 +55,14 @@ class LocationQualifier:
     id_pattern:  Optional[PatternMatchQualifier] = None
     max_dims:  Optional[vec.FloatVec] = None
     min_dims:  Optional[vec.FloatVec] = None
-    any_loads:  Optional[Iterable[LoadQualifier]] = None
-    all_loads:  Optional[Iterable[LoadQualifier]] = None
+    any_containers:  Optional[Iterable[ContainerQualifier]] = None
+    all_containers:  Optional[Iterable[ContainerQualifier]] = None
     reserved:  Optional[bool] = None
     at_least_capacity:  Optional[int] = None
 
     def check_if_qualifies(self,
                            loc: Location,
-                           load_provider: LoadByIdProvider = None) -> bool:
+                           container_provider: ContainerByIdProvider = None) -> bool:
         # Disqualify on Pattern
         if self.id_pattern is not None and not _pattern_qualifies(self.id_pattern, str(loc.Id)):
             return False
@@ -75,20 +75,20 @@ class LocationQualifier:
         if self.min_dims is not None and not _dims_within_min(loc.Meta.dims, self.min_dims):
             return False
 
-        # Disqualify if doesn't have any of any_loads
-        if self.any_loads is not None:
-            if load_provider is None:
-                raise ValueError("load_provider is required when using any_loads qualifier")
-            loc_loads = load_provider(loc.LoadIds).values()
-            if not any(q.check_if_qualifies(load) for load in loc_loads for q in self.any_loads):
+        # Disqualify if doesn't have any of any_containers
+        if self.any_containers is not None:
+            if container_provider is None:
+                raise ValueError("container_provider is required when using any_containers qualifier")
+            loc_containers = container_provider(loc.ContainerIds).values()
+            if not any(q.check_if_qualifies(container) for container in loc_containers for q in self.any_containers):
                 return False
 
-        # Disqualify if doesn't have all of all_loads
-        if self.all_loads is not None:
-            if load_provider is None:
-                raise ValueError("load_provider is required when using all_loads qualifier")
-            loc_loads = load_provider(loc.LoadIds).values()
-            if not all(q.check_if_qualifies(load) for load in loc_loads for q in self.all_loads):
+        # Disqualify if doesn't have all of all_containers
+        if self.all_containers is not None:
+            if container_provider is None:
+                raise ValueError("container_provider is required when using all_containers qualifier")
+            loc_containers = container_provider(loc.ContainerIds).values()
+            if not all(q.check_if_qualifies(container) for container in loc_containers for q in self.all_containers):
                 return False
 
         # Disqualify on capacity

@@ -10,35 +10,35 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TransferRequestCriteria(dcs.BaseIdentifiedDataClass):
-    load_query_args: lq.LoadQualifier = None
+    container_query_args: lq.ContainerQualifier = None
     source_loc_query_args: lq.LocationQualifier = None
     dest_loc_query_args: lq.LocationQualifier = None
-    new_load: dcs.Load = None
+    new_container: dcs.Container = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TransferRequest(dcs.BaseIdentifiedDataClass):
     criteria: TransferRequestCriteria
-    load: dcs.Load = None
+    container: dcs.Container = None
     source_loc: Location = None
     dest_loc: Location = None
 
     def verify(self):
-        # source empty, firm load, dest firm --> store new load at dest
+        # source empty, firm container, dest firm --> store new container at dest
         if self.source_loc is None and \
-            self.load is not None and \
+            self.container is not None and \
             self.dest_loc is not None:
             return True
 
-        # source firm, firm load, dest query --> transfer load
+        # source firm, firm container, dest query --> transfer container
         if self.source_loc is not None and \
-            self.load is not None and \
+            self.container is not None and \
             self.dest_loc is not None:
             return True
 
-        # source empty, firm load, dest empty --> remove load
+        # source empty, firm container, dest empty --> remove container
         if self.source_loc is not None and \
-            self.load is not None and \
+            self.container is not None and \
             self.dest_loc is None:
             return True
 
@@ -46,12 +46,12 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
 
     @property
     def Ready(self) -> bool:
-        # is load ready to be removed
+        # is container ready to be removed
         try:
             if self.source_loc is None:
                 pass
             else:
-                self.source_loc.verify_removable(self.load.id)
+                self.source_loc.verify_removable(self.container.id)
         except:
             return False
 
@@ -80,7 +80,7 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
         return {
             'id': obj.get_id(),
             'criteria': asdict(obj.criteria),
-            'load': asdict(obj.load),
+            'container': asdict(obj.container),
             'source_loc': Location.to_jsonable_dict(obj.source_loc) if obj.source_loc else "",
             'dest_loc': Location.to_jsonable_dict(obj.dest_loc) if obj.dest_loc else ""
         }
@@ -89,7 +89,7 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
     def from_jsonable_dict(cls, obj: Dict) -> Self:
         return TransferRequest(
             criteria=TransferRequestCriteria(**obj['criteria']),
-            load=dcs.Load(**obj['load']),
+            container=dcs.Container(**obj['container']),
             source_loc=Location.from_jsonable_dict(obj['source_loc']) if obj.get('source_loc') else None,
             dest_loc=Location.from_jsonable_dict(obj['dest_loc']) if obj.get('dest_loc') else None
         )

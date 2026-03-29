@@ -7,14 +7,14 @@ from coopstorage.storage2.loc_load.location import Location
 from coopstorage.storage2.loc_load.transferRequest import TransferRequest
 from cooptools.protocols import UniqueIdentifier
 
-class LoadDataStore:
+class ContainerDataStore:
     def __init__(self,
                  data_store: DataStoreProtocol):
         self._data_store = data_store
 
     def get(self,
             ids: Iterable[UniqueIdentifier]=None,
-            qualifier: qs.LoadQualifier=None) -> Dict[UniqueIdentifier, dcs.Load]:
+            qualifier: qs.ContainerQualifier=None) -> Dict[UniqueIdentifier, dcs.Container]:
         ret = self._data_store.get(ids=ids, id_query=qualifier.pattern if qualifier is not None else None)
         if qualifier is not None:
             ret = {k: v for k, v in ret.items() if qualifier.check_if_qualifies(v)}
@@ -24,16 +24,16 @@ class LoadDataStore:
         self._data_store.clear()
         return self
 
-    def add(self, loads: Iterable[dcs.Load]):
-        self._data_store.add(loads)
+    def add(self, containers: Iterable[dcs.Container]):
+        self._data_store.add(containers)
         return self
 
-    def add_or_update(self, loads: Iterable[dcs.Load]):
-        self._data_store.add_or_update(loads)
+    def add_or_update(self, containers: Iterable[dcs.Container]):
+        self._data_store.add_or_update(containers)
         return self
 
-    def remove(self, loads: Iterable[dcs.Load]):
-        self._data_store.remove(loads)
+    def remove(self, containers: Iterable[dcs.Container]):
+        self._data_store.remove(containers)
         return self
 
 class LocationDataStore:
@@ -44,13 +44,13 @@ class LocationDataStore:
     def get(self,
             qualifier: qs.LocationQualifier = None,
             ids: Iterable[UniqueIdentifier] = None,
-            load_provider: qs.LoadByIdProvider = None) -> Dict[UniqueIdentifier, Location]:
+            container_provider: qs.ContainerByIdProvider = None) -> Dict[UniqueIdentifier, Location]:
         if ids is not None:
             return self._data_store.get(ids=ids)
 
         ret = self._data_store.get(id_query=qualifier.id_pattern if qualifier is not None else None)
         if qualifier is not None:
-            ret = {k: v for k, v in ret.items() if qualifier.check_if_qualifies(v, load_provider=load_provider)}
+            ret = {k: v for k, v in ret.items() if qualifier.check_if_qualifies(v, container_provider=container_provider)}
         return ret
 
     def clear(self) -> Self:
@@ -93,19 +93,19 @@ class TransferRequestDataStore:
 
 class StorageDataStore:
     def __init__(self,
-                 loads_data_store: DataStoreProtocol = None,
+                 containers_data_store: DataStoreProtocol = None,
                  location_data_store: DataStoreProtocol = None,
                  transfer_request_data_store: DataStoreProtocol = None
                  ):
-        self._loads_data_store: LoadDataStore = LoadDataStore(data_store=loads_data_store or InMemoryDataStore())
+        self._containers_data_store: ContainerDataStore = ContainerDataStore(data_store=containers_data_store or InMemoryDataStore())
         self._locs_data_store: LocationDataStore = LocationDataStore(
             data_store=location_data_store or InMemoryDataStore())
         self._transfer_requests_data_store: TransferRequestDataStore = TransferRequestDataStore(
             data_store=transfer_request_data_store or InMemoryDataStore())
 
     @property
-    def LoadsData(self) -> LoadDataStore:
-        return self._loads_data_store
+    def ContainersData(self) -> ContainerDataStore:
+        return self._containers_data_store
 
     @property
     def LocationsData(self):
@@ -117,5 +117,5 @@ class StorageDataStore:
 
     def clear(self):
         self._locs_data_store.clear()
-        self._loads_data_store.clear()
+        self._containers_data_store.clear()
         self._transfer_requests_data_store.clear()

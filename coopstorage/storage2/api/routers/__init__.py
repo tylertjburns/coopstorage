@@ -1,3 +1,3 @@
-from .load_router import load_router_factory
+from .container_router import container_router_factory
 from .location_router import location_router_factory
 from .transfer_request_router import transfer_request_router_factory

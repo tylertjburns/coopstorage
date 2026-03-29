@@ -32,10 +32,10 @@ class Location:
 
     @property
     def AvailableCapacity(self) -> int:
-        return self._meta.capacity - len(self.LoadIds)
+        return self._meta.capacity - len(self.ContainerIds)
 
     @property
-    def LoadPositions(self) -> Dict[int, UniqueIdentifier]:
+    def ContainerPositions(self) -> Dict[int, UniqueIdentifier]:
         return {ii: x for ii, x in enumerate(self._channel.State)}
 
     @property
@@ -47,7 +47,7 @@ class Location:
         return self._meta
 
     @property
-    def LoadIds(self) -> List[UniqueIdentifier]:
+    def ContainerIds(self) -> List[UniqueIdentifier]:
         return self._channel.StoredIds
 
     def get_removable_positions(self):
@@ -56,22 +56,22 @@ class Location:
     def get_addable_positions(self):
         return self._channel.get_addable_positions()
 
-    def get_removable_load_ids(self):
+    def get_removable_container_ids(self):
         return self._channel.get_removable_ids()
 
-    def store_loads(self, load_ids: Iterable[UniqueIdentifier]):
-        logger.info(f"Storing loads {[x for x in load_ids]} in location \'{self._id}\': {str(self._channel)}")
-        self._channel.store(load_ids)
-        logger.info(f"Done storing loads {[x for x in load_ids]} in location \'{self._id}\': {str(self._channel)}")
+    def store_containers(self, container_ids: Iterable[UniqueIdentifier]):
+        logger.info(f"Storing containers {[x for x in container_ids]} in location \'{self._id}\': {str(self._channel)}")
+        self._channel.store(container_ids)
+        logger.info(f"Done storing containers {[x for x in container_ids]} in location \'{self._id}\': {str(self._channel)}")
         return self
 
-    def remove_loads(self, load_ids: Iterable[UniqueIdentifier]):
-        logger.info(f"Removing loads {[x for x in load_ids]} from location \'{self._id}\': {str(self._channel)}")
-        self._channel.remove(load_ids)
-        logger.info(f"Done removing loads {[x for x in load_ids]} from location \'{self._id}\': {str(self._channel)}")
+    def remove_containers(self, container_ids: Iterable[UniqueIdentifier]):
+        logger.info(f"Removing containers {[x for x in container_ids]} from location \'{self._id}\': {str(self._channel)}")
+        self._channel.remove(container_ids)
+        logger.info(f"Done removing containers {[x for x in container_ids]} from location \'{self._id}\': {str(self._channel)}")
         return self
 
-    def clear_loads(self):
+    def clear_containers(self):
         self._channel.clear()
 
     def set_reservation_token(self, token: uuid.UUID):
@@ -85,14 +85,14 @@ class Location:
     def Reserved(self) -> bool:
         return self._reservation_token is not None
 
-    def verify_removable(self, load_id: UniqueIdentifier):
-        return self._meta.channel_processor.verify_removable(load_id, state=self._channel.State)
+    def verify_removable(self, container_id: UniqueIdentifier):
+        return self._meta.channel_processor.verify_removable(container_id, state=self._channel.State)
 
     def summary(self) -> Dict[UniqueIdentifier, List[UniqueIdentifier]]:
         return {k.Id: [ld.id for ld in v] for k, v in self.LocLoads.items()}
 
     def __repr__(self):
-        return f"{self._id}: {self.LoadPositions}"
+        return f"{self._id}: {self.ContainerPositions}"
 
     def get_id(self) -> UniqueIdentifier:
         return self._id
@@ -137,6 +137,6 @@ if __name__ == "__main__":
         id='2',
         uom=dcs.UnitOfMeasure(name="ea"),
     )
-    l_a.store_loads([lpn1.id])
-    l_a.store_loads([lpn2.id])
-    l_a.remove_loads([lpn2.id])
+    l_a.store_containers([lpn1.id])
+    l_a.store_containers([lpn2.id])
+    l_a.remove_containers([lpn2.id])
