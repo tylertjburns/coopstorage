@@ -59,6 +59,8 @@ class LocationQualifier:
     all_containers:  Optional[Iterable[ContainerQualifier]] = None
     reserved:  Optional[bool] = None
     at_least_capacity:  Optional[int] = None
+    is_occupied:  Optional[bool] = None
+    has_content:  Optional[dcs.ContainerContent] = None
 
     def check_if_qualifies(self,
                            loc: Location,
@@ -98,5 +100,25 @@ class LocationQualifier:
         # Disqualify on reserved
         if self.reserved is not None and loc.Reserved != self.reserved:
             return False
+
+        # Disqualify on occupied state: True requires at least one container, False requires none
+        if self.is_occupied is not None:
+            occupied = len(loc.ContainerIds) > 0
+            if occupied != self.is_occupied:
+                return False
+
+        # Disqualify if total qty of (resource, uom) across all containers is less than required
+        if self.has_content is not None:
+            if container_provider is None:
+                raise ValueError("container_provider is required when using has_content qualifier")
+            loc_containers = container_provider(loc.ContainerIds).values()
+            total = sum(
+                c.qty
+                for container in loc_containers
+                for c in container.contents
+                if c.resource == self.has_content.resource and c.uom == self.has_content.uom
+            )
+            if total < self.has_content.qty:
+                return False
 
         return True

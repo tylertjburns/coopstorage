@@ -266,6 +266,38 @@ class Storage:
     def Locations(self) -> List[Location]:
         return self._data_store.LocationsData.get()
 
+    @property
+    def OccupiedLocs(self) -> List[Location]:
+        """Locations that have at least one container stored."""
+        return [loc for loc in self._data_store.LocationsData.get().values() if len(loc.ContainerIds) > 0]
+
+    @property
+    def EmptyLocs(self) -> List[Location]:
+        """Locations with no containers stored."""
+        return [loc for loc in self._data_store.LocationsData.get().values() if len(loc.ContainerIds) == 0]
+
+    def content_at_location(self, loc_id: UniqueIdentifier) -> List[dcs.ContainerContent]:
+        """All ContainerContent across every container at a location, aggregated by (resource, uom)."""
+        from coopstorage.storage2.loc_load.container_state_mutations import _merge_contents
+        self._verify_loc(loc_id)
+        loc = self._data_store.LocationsData.get(ids=[loc_id])[loc_id]
+        all_contents = [
+            c
+            for container in self._data_store.ContainersData.get(ids=loc.ContainerIds).values()
+            for c in container.contents
+        ]
+        return list(_merge_contents(all_contents))
+
+    @property
+    def InventoryByResourceUom(self) -> Dict[Tuple[dcs.Resource, dcs.UnitOfMeasure], float]:
+        """Total qty of every (Resource, UoM) pair across all containers in storage."""
+        ret: Dict[Tuple[dcs.Resource, dcs.UnitOfMeasure], float] = {}
+        for container in self._data_store.ContainersData.get().values():
+            for c in container.contents:
+                key = (c.resource, c.uom)
+                ret[key] = ret.get(key, 0.0) + c.qty
+        return ret
+
     def summary(self) -> Dict[UniqueIdentifier, List[UniqueIdentifier]]:
         try:
             return {k.Id: [ld.id for ld in v] for k, v in self.LocContainers.items()}

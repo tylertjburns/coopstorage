@@ -214,5 +214,86 @@ class TestLocationQualifier(unittest.TestCase):
         self.assertTrue(q.check_if_qualifies(loc))
 
 
+class TestLocationQualifierIsOccupied(unittest.TestCase):
+
+    def _provider(self, containers):
+        return lambda ids: {c.id: c for c in containers if c.id in ids}
+
+    def test_is_occupied_true_passes_when_has_container(self):
+        loc = _loc(id='A', capacity=3)
+        loc = loc.store_containers(['C1'])
+        q = LocationQualifier(is_occupied=True)
+        self.assertTrue(q.check_if_qualifies(loc))
+
+    def test_is_occupied_true_fails_when_empty(self):
+        loc = _loc(id='A', capacity=3)
+        q = LocationQualifier(is_occupied=True)
+        self.assertFalse(q.check_if_qualifies(loc))
+
+    def test_is_occupied_false_passes_when_empty(self):
+        loc = _loc(id='A', capacity=3)
+        q = LocationQualifier(is_occupied=False)
+        self.assertTrue(q.check_if_qualifies(loc))
+
+    def test_is_occupied_false_fails_when_has_container(self):
+        loc = _loc(id='A', capacity=3)
+        loc = loc.store_containers(['C1'])
+        q = LocationQualifier(is_occupied=False)
+        self.assertFalse(q.check_if_qualifies(loc))
+
+
+class TestLocationQualifierHasContent(unittest.TestCase):
+
+    EACH = dcs.UnitOfMeasure(name='EA')
+    SKU_A = dcs.Resource(name='SKU_A')
+    SKU_B = dcs.Resource(name='SKU_B')
+
+    def _make_container(self, cid, qty, resource=None, uom=None):
+        resource = resource or self.SKU_A
+        uom = uom or self.EACH
+        contents = frozenset([dcs.ContainerContent(resource=resource, uom=uom, qty=qty)])
+        return dcs.Container(id=cid, contents=contents)
+
+    def _provider(self, *containers):
+        m = {c.id: c for c in containers}
+        return lambda ids: {k: v for k, v in m.items() if k in ids}
+
+    def test_has_content_qualifies_when_sufficient_qty(self):
+        c = self._make_container('C1', qty=10.0)
+        loc = _loc(id='A', capacity=3)
+        loc = loc.store_containers(['C1'])
+        q = LocationQualifier(has_content=dcs.ContainerContent(resource=self.SKU_A, uom=self.EACH, qty=5.0))
+        self.assertTrue(q.check_if_qualifies(loc, container_provider=self._provider(c)))
+
+    def test_has_content_disqualifies_when_insufficient_qty(self):
+        c = self._make_container('C1', qty=2.0)
+        loc = _loc(id='A', capacity=3)
+        loc = loc.store_containers(['C1'])
+        q = LocationQualifier(has_content=dcs.ContainerContent(resource=self.SKU_A, uom=self.EACH, qty=5.0))
+        self.assertFalse(q.check_if_qualifies(loc, container_provider=self._provider(c)))
+
+    def test_has_content_aggregates_across_containers(self):
+        c1 = self._make_container('C1', qty=3.0)
+        c2 = self._make_container('C2', qty=4.0)
+        loc = _loc(id='A', capacity=3)
+        loc = loc.store_containers(['C1', 'C2'])
+        q = LocationQualifier(has_content=dcs.ContainerContent(resource=self.SKU_A, uom=self.EACH, qty=6.0))
+        self.assertTrue(q.check_if_qualifies(loc, container_provider=self._provider(c1, c2)))
+
+    def test_has_content_wrong_resource_disqualifies(self):
+        c = self._make_container('C1', qty=10.0, resource=self.SKU_B)
+        loc = _loc(id='A', capacity=3)
+        loc = loc.store_containers(['C1'])
+        q = LocationQualifier(has_content=dcs.ContainerContent(resource=self.SKU_A, uom=self.EACH, qty=1.0))
+        self.assertFalse(q.check_if_qualifies(loc, container_provider=self._provider(c)))
+
+    def test_has_content_requires_container_provider(self):
+        loc = _loc(id='A', capacity=3)
+        loc = loc.store_containers(['C1'])
+        q = LocationQualifier(has_content=dcs.ContainerContent(resource=self.SKU_A, uom=self.EACH, qty=1.0))
+        with self.assertRaises(ValueError):
+            q.check_if_qualifies(loc)
+
+
 if __name__ == "__main__":
     unittest.main()

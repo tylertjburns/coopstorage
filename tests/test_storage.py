@@ -400,6 +400,75 @@ def _bulk_storage(loc_id='BIN'):
     return s
 
 
+class TestInventoryAggregation(unittest.TestCase):
+
+    def _seeded_storage(self):
+        """Two locations: BIN1 (occupied), BIN2 (empty)."""
+        s = Storage()
+        s.register_locs([_loc('BIN1', capacity=1), _loc('BIN2', capacity=1)])
+        s.register_containers([_load('C1')])
+        s.handle_transfer_requests([
+            TransferRequestCriteria(
+                new_container=_load('C1'),
+                dest_loc_query_args=LocationQualifier(id_pattern=PatternMatchQualifier(regex='^BIN1$'))
+            )
+        ])
+        return s
+
+    def test_occupied_locs(self):
+        s = self._seeded_storage()
+        occupied = s.OccupiedLocs
+        self.assertEqual(len(occupied), 1)
+        self.assertEqual(occupied[0].Id, 'BIN1')
+
+    def test_empty_locs(self):
+        s = self._seeded_storage()
+        empty = s.EmptyLocs
+        self.assertEqual(len(empty), 1)
+        self.assertEqual(empty[0].Id, 'BIN2')
+
+    def test_content_at_location_aggregates(self):
+        s = Storage()
+        s.register_locs([_loc('BIN1', capacity=2)])
+        # Place a container with content at BIN1
+        container = dcs.Container(
+            id='C1',
+            contents=frozenset([ContainerContent(resource=SKU_A, uom=EACH, qty=5.0)])
+        )
+        s.register_containers([container])
+        s.handle_transfer_requests([
+            TransferRequestCriteria(
+                new_container=container,
+                dest_loc_query_args=LocationQualifier(id_pattern=PatternMatchQualifier(regex='^BIN1$'))
+            )
+        ])
+        contents = s.content_at_location('BIN1')
+        total = sum(c.qty for c in contents)
+        self.assertAlmostEqual(total, 5.0)
+
+    def test_content_at_location_empty_returns_empty(self):
+        s = Storage()
+        s.register_locs([_loc('BIN1', capacity=1)])
+        self.assertEqual(s.content_at_location('BIN1'), [])
+
+    def test_inventory_by_resource_uom(self):
+        s = Storage()
+        s.register_locs([_loc('BIN1', capacity=2), _loc('BIN2', capacity=2)])
+        c1 = dcs.Container(id='C1', contents=frozenset([ContainerContent(resource=SKU_A, uom=EACH, qty=3.0)]))
+        c2 = dcs.Container(id='C2', contents=frozenset([ContainerContent(resource=SKU_A, uom=EACH, qty=4.0)]))
+        s.register_containers([c1, c2])
+        s.handle_transfer_requests([
+            TransferRequestCriteria(new_container=c1, dest_loc_query_args=LocationQualifier(id_pattern=PatternMatchQualifier(regex='^BIN1$'))),
+            TransferRequestCriteria(new_container=c2, dest_loc_query_args=LocationQualifier(id_pattern=PatternMatchQualifier(regex='^BIN2$'))),
+        ])
+        inv = s.InventoryByResourceUom
+        self.assertAlmostEqual(inv[(SKU_A, EACH)], 7.0)
+
+    def test_inventory_by_resource_uom_empty(self):
+        s = Storage()
+        self.assertEqual(s.InventoryByResourceUom, {})
+
+
 class TestAddContentAtLocation(unittest.TestCase):
 
     def test_add_content_increases_qty(self):
