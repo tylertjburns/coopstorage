@@ -55,6 +55,7 @@ class BenchmarkConfig:
     fill_threshold_pct: float = 0.80
     drain_to_pct:       float = 0.40
     validate_every:     int   = None    # None → total_to_add // 10
+    progress_every:     int   = None    # None → same as add_batch_size
     track_sample_size:  int   = 50
     add_batch_size:     int   = 100
 
@@ -77,6 +78,10 @@ class BenchmarkConfig:
     @property
     def effective_validate_every(self) -> int:
         return self.validate_every or max(1, self.total_to_add // 10)
+
+    @property
+    def effective_progress_every(self) -> int:
+        return self.progress_every or self.add_batch_size
 
 
 SMALL = BenchmarkConfig(
@@ -224,6 +229,18 @@ def run_benchmark(test: unittest.TestCase, cfg: BenchmarkConfig) -> None:
         total_added   += batch
         metrics['total_added'] += batch
         metrics['add_times'].append(time.perf_counter() - t0)
+
+        # periodic progress update (cheap — no invariant checks)
+        if total_added % cfg.effective_progress_every == 0:
+            elapsed   = time.perf_counter() - start
+            rate      = total_added / elapsed if elapsed > 0 else 0
+            remaining = (cfg.total_to_add - total_added) / rate if rate > 0 else float('inf')
+            pct       = total_added / cfg.total_to_add * 100
+            print(f"  [progress]  {total_added:,}/{cfg.total_to_add:,} ({pct:.0f}%)"
+                  f"  concurrent={current_count:,}"
+                  f"  elapsed={elapsed:.1f}s"
+                  f"  rate={rate:,.0f}/s"
+                  f"  eta={remaining:.0f}s", flush=True)
 
         # drain when over fill threshold
         if current_count >= cfg.fill_threshold:
