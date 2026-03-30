@@ -246,16 +246,29 @@ def run_benchmark(test: unittest.TestCase, cfg: BenchmarkConfig) -> None:
         if current_count >= cfg.fill_threshold:
             to_remove = current_count - cfg.drain_target
             t0 = time.perf_counter()
+            removed_this_drain = 0
+            print(f"  [drain start]  removing {to_remove:,} containers"
+                  f"  (concurrent={current_count:,} → {cfg.drain_target:,})", flush=True)
             for _ in range(to_remove):
                 storage.handle_transfer_requests([
                     TransferRequestCriteria(
                         source_loc_query_args=LocationQualifier(is_occupied=True),
                     )
                 ])
+                removed_this_drain += 1
+                if removed_this_drain % cfg.effective_progress_every == 0:
+                    elapsed      = time.perf_counter() - start
+                    drain_rate   = removed_this_drain / (time.perf_counter() - t0)
+                    remaining_drain = to_remove - removed_this_drain
+                    print(f"  [draining]  -{removed_this_drain:,}/{to_remove:,}"
+                          f"  concurrent={current_count - removed_this_drain:,}"
+                          f"  elapsed={elapsed:.1f}s"
+                          f"  rate={drain_rate:,.0f}/s", flush=True)
             current_count            -= to_remove
             metrics['total_removed'] += to_remove
             metrics['drain_events']  += 1
             metrics['remove_times'].append(time.perf_counter() - t0)
+            print(f"  [drain done]  removed {to_remove:,}  elapsed={time.perf_counter() - t0:.1f}s", flush=True)
 
         # periodic validation
         if total_added % cfg.effective_validate_every == 0:
