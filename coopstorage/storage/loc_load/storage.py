@@ -139,28 +139,22 @@ class Storage:
 
     def select_location(self,
                         filter: qs.LocationQualifier = None,
-                        evaluator: Callable[[Location], float] = lambda x: 1):
-        # Get filtered options
-        options = self.filter(
-            filter=filter
-        )
-
-        # raise if no options were found
-        if len(options) == 0:
+                        evaluator: Callable[[Location], float] = None):
+        # Fast path: no custom evaluator — return the first qualifying location immediately
+        if evaluator is None:
+            container_provider = self._data_store.ContainersData.get
+            for loc in self._data_store.LocationsData.iter_values():
+                if filter is None or filter.check_if_qualifies(loc, container_provider=container_provider):
+                    return loc
             raise errs.NoLocationsMatchFilterCriteriaException(filter)
 
-        # score the options
+        # Scored path: collect all options, evaluate, and sort
+        options = self.filter(filter=filter)
+        if len(options) == 0:
+            raise errs.NoLocationsMatchFilterCriteriaException(filter)
         scores = self.evaluate(options, evaluator)
-
-        # short-circuit when all scores are equal — skip O(n log n) sort
-        score_values = list(scores.values())
-        if len(score_values) == 1 or all(v == score_values[0] for v in score_values):
-            return options[0]
-
         ordered = sorted([(k, v) for k, v in scores.items()],
                          key=lambda tup: tup[1], reverse=True)
-
-        # return the first one
         return ordered[0][0]
 
     def resolve_transfer_request_criteria(
@@ -241,6 +235,13 @@ class Storage:
                 if request.Ready:
                     self._handle_transfer_request(request)
                     self._data_store.TransferRequestsData.remove(requests=[request])
+                    # purge container if flagged on the criteria or the destination location
+                    dest_deletes = request.dest_loc is not None and request.dest_loc.Meta.delete_on_receive
+                    if request.criteria.delete_container_on_transfer or dest_deletes:
+                        self._data_store.ContainersData.remove(containers=[request.container])
+                    # container leaving storage entirely (source only, no dest) — purge it
+                    if request.source_loc is not None and request.dest_loc is None:
+                        self._data_store.ContainersData.remove(containers=[request.container])
                 else:
                     logger.error(f"{pprint.pformat(request)}")
                     raise NotImplementedError()

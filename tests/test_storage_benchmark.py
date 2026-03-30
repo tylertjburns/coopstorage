@@ -253,6 +253,7 @@ def run_benchmark(test: unittest.TestCase, cfg: BenchmarkConfig) -> None:
                 storage.handle_transfer_requests([
                     TransferRequestCriteria(
                         source_loc_query_args=LocationQualifier(is_occupied=True),
+                        delete_container_on_transfer=True,
                     )
                 ])
                 removed_this_drain += 1

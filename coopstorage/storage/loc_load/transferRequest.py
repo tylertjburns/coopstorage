@@ -14,6 +14,13 @@ class TransferRequestCriteria(dcs.BaseIdentifiedDataClass):
     source_loc_query_args: lq.LocationQualifier = None
     dest_loc_query_args: lq.LocationQualifier = None
     new_container: dcs.Container = None
+    delete_container_on_transfer: bool = False
+
+    def __post_init__(self):
+        if self.delete_container_on_transfer and self.dest_loc_query_args is not None:
+            raise ValueError(
+                "delete_container_on_transfer=True is invalid when dest_loc_query_args is set"
+            )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
