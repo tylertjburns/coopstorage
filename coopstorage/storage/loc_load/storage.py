@@ -151,6 +151,12 @@ class Storage:
 
         # score the options
         scores = self.evaluate(options, evaluator)
+
+        # short-circuit when all scores are equal — skip O(n log n) sort
+        score_values = list(scores.values())
+        if len(score_values) == 1 or all(v == score_values[0] for v in score_values):
+            return options[0]
+
         ordered = sorted([(k, v) for k, v in scores.items()],
                          key=lambda tup: tup[1], reverse=True)
 
