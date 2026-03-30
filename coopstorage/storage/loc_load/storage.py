@@ -121,11 +121,11 @@ class Storage:
     def filter(self,
                filter: qs.LocationQualifier=None) -> List[Location]:
         if filter is None:
-            return list(self._data_store.LocationsData.get().values())
+            return list(self._data_store.LocationsData.iter_values())
 
         container_provider = self._data_store.ContainersData.get
         return [
-            loc for loc in self._data_store.LocationsData.get().values()
+            loc for loc in self._data_store.LocationsData.iter_values()
             if filter.check_if_qualifies(loc, container_provider=container_provider)
         ]
 

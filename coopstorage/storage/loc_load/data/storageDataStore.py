@@ -57,6 +57,9 @@ class LocationDataStore:
         self._data_store.clear()
         return self
 
+    def iter_values(self) -> Iterable[Location]:
+        return self._data_store.iter_values()
+
     def add(self, locs: Iterable[Location]):
         self._data_store.add(locs)
         return self
