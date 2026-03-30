@@ -1,5 +1,5 @@
-from coopstorage.storage2.loc_load.location import Location
-import coopstorage.storage2.loc_load.dcs as dcs
+from coopstorage.storage.loc_load.location import Location
+import coopstorage.storage.loc_load.dcs as dcs
 from typing import Callable, Dict, Iterable, Optional
 from dataclasses import dataclass
 import cooptools.geometry_utils.vector_utils as vec

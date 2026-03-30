@@ -1,5 +1,5 @@
 from cooptools.protocols import UniqueIdentifier
-from coopstorage.storage2.loc_load.qualifiers import LocationQualifier
+from coopstorage.storage.loc_load.qualifiers import LocationQualifier
 
 class UnknownLocationIdException(Exception):
     def __init__(self, loc_id: UniqueIdentifier):

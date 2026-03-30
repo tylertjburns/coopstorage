@@ -18,17 +18,17 @@ Covers:
 import threading
 import unittest
 
-import coopstorage.storage2.loc_load.channel_processors as cps
-import coopstorage.storage2.loc_load.dcs as dcs
-from coopstorage.storage2.loc_load.location import Location
-from coopstorage.storage2.loc_load.qualifiers import LocationQualifier, ContainerQualifier
-from coopstorage.storage2.loc_load.storage import Storage
-from coopstorage.storage2.loc_load.transferRequest import TransferRequestCriteria
-from coopstorage.storage2.loc_load.exceptions import (
+import coopstorage.storage.loc_load.channel_processors as cps
+import coopstorage.storage.loc_load.dcs as dcs
+from coopstorage.storage.loc_load.location import Location
+from coopstorage.storage.loc_load.qualifiers import LocationQualifier, ContainerQualifier
+from coopstorage.storage.loc_load.storage import Storage
+from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria
+from coopstorage.storage.loc_load.exceptions import (
     NoLocationsMatchFilterCriteriaException,
     UnexpectedContainerCountException,
 )
-from coopstorage.storage2.loc_load.dcs import ContainerContent, UnitOfMeasure, Resource
+from coopstorage.storage.loc_load.dcs import ContainerContent, UnitOfMeasure, Resource
 from cooptools.qualifiers import PatternMatchQualifier
 
 # ── helpers ───────────────────────────────────────────────────────────────────

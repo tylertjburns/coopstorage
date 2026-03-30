@@ -12,7 +12,7 @@ the storage2 domain model (Container, ContainerContent, UoMCapacity).
 import logging
 from typing import List, Dict, Tuple
 
-from coopstorage.storage2.loc_load.dcs import Container, ContainerContent, UoMCapacity, UnitOfMeasure, Resource
+from coopstorage.storage.loc_load.dcs import Container, ContainerContent, UoMCapacity, UnitOfMeasure, Resource
 
 logger = logging.getLogger(__name__)
 

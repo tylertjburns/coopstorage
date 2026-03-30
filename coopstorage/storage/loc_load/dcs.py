@@ -3,7 +3,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Dict, Optional, List, Union, Tuple, Iterable, Self
 import uuid
 from cooptools.geometry_utils import vector_utils as vec
-import coopstorage.storage2.loc_load.channel_processors as cps
+import coopstorage.storage.loc_load.channel_processors as cps
 from cooptools.protocols import UniqueIdentifier
 from cooptools.coopDataclass import BaseDataClass, BaseIdentifiedDataClass
 from cooptools.qualifiers import WhiteBlackListQualifier

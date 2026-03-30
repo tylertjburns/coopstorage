@@ -1,10 +1,10 @@
 from cooptools.dataStore.inMemoryDataStore import InMemoryDataStore
 from cooptools.dataStore.dataStoreProtocol import DataStoreProtocol
-import coopstorage.storage2.loc_load.qualifiers as qs
+import coopstorage.storage.loc_load.qualifiers as qs
 from typing import Self, List, Iterable, Dict
-from coopstorage.storage2.loc_load import dcs
-from coopstorage.storage2.loc_load.location import Location
-from coopstorage.storage2.loc_load.transferRequest import TransferRequest
+from coopstorage.storage.loc_load import dcs
+from coopstorage.storage.loc_load.location import Location
+from coopstorage.storage.loc_load.transferRequest import TransferRequest
 from cooptools.protocols import UniqueIdentifier
 
 class ContainerDataStore:

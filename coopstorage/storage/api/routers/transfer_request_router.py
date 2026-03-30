@@ -3,8 +3,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import List
 
-from coopstorage.storage2.loc_load.storage import Storage
-from coopstorage.storage2.loc_load.transferRequest import TransferRequestCriteria
+from coopstorage.storage.loc_load.storage import Storage
+from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria
 
 logger = logging.getLogger(__name__)
 

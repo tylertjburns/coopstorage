@@ -3,11 +3,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Iterable, List, Tuple, Dict
 
-from coopstorage.storage2.loc_load.storage import Storage
-from coopstorage.storage2.loc_load import dcs
-from coopstorage.storage2.loc_load import qualifiers as qs
-import coopstorage.storage2.loc_load.channel_processors as cps
-from coopstorage.storage2.loc_load.location import Location
+from coopstorage.storage.loc_load.storage import Storage
+from coopstorage.storage.loc_load import dcs
+from coopstorage.storage.loc_load import qualifiers as qs
+import coopstorage.storage.loc_load.channel_processors as cps
+from coopstorage.storage.loc_load.location import Location
 from cooptools.common import LETTERS
 
 logger = logging.getLogger(__name__)

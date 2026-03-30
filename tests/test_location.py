@@ -12,10 +12,10 @@ Covers:
 import unittest
 import uuid
 
-import coopstorage.storage2.loc_load.dcs as dcs
-import coopstorage.storage2.loc_load.channel_processors as cps
-from coopstorage.storage2.loc_load.location import Location
-from coopstorage.storage2.loc_load.channel_processors import (
+import coopstorage.storage.loc_load.dcs as dcs
+import coopstorage.storage.loc_load.channel_processors as cps
+from coopstorage.storage.loc_load.location import Location
+from coopstorage.storage.loc_load.channel_processors import (
     ItemNotAccessibleToRemoveException,
     NoRoomToAddException,
 )

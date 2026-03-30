@@ -1,13 +1,13 @@
 import os
-from coopstorage.storage2.loc_load.location import Location
+from coopstorage.storage.loc_load.location import Location
 from coopmongo.mongoCollectionDataStore import MongoCollectionDataStore, ObjectDocumentFacade
 from cooptools.dataStore import dbConnectionURI as dburi
 from cooptools.cnxn_info import Creds
 from dataclasses import dataclass, field, asdict
-from coopstorage.storage2.loc_load import dcs
+from coopstorage.storage.loc_load import dcs
 
-from coopstorage.storage2.loc_load.data.mongo import *
-from coopstorage.storage2.loc_load.data.storageDataStore import *
+from coopstorage.storage.loc_load.data.mongo import *
+from coopstorage.storage.loc_load.data.storageDataStore import *
 
 LOCATIONS = 'locations'
 LOADS = 'loads'
@@ -50,20 +50,20 @@ MONGO_TEST_TREQ_DATA = MongoCollectionDataStore(db_name=DB_NAME, collection_name
 
 PROD_DATA = StorageDataStore(
     location_data_store=MONGO_PROD_LOC_DATA,
-    loads_data_store=MONGO_PROD_LOAD_DATA,
+    containers_data_store=MONGO_PROD_LOAD_DATA,
     transfer_request_data_store=MONGO_PROD_TREQ_DATA
 )
 
 TEST_DATA = StorageDataStore(
     location_data_store=MONGO_TEST_LOC_DATA,
-    loads_data_store=MONGO_TEST_LOAD_DATA,
+    containers_data_store=MONGO_TEST_LOAD_DATA,
     transfer_request_data_store=MONGO_TEST_TREQ_DATA
 )
 
 
 if __name__ == "__main__":
-    import coopstorage.storage2.loc_load.dcs as dcs
-    import coopstorage.storage2.loc_load.channel_processors as cps
+    import coopstorage.storage.loc_load.dcs as dcs
+    import coopstorage.storage.loc_load.channel_processors as cps
     from pprint import pprint
 
     def t01():

@@ -2,8 +2,8 @@ import logging
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Dict, List, Tuple, Iterable, Optional
-from coopstorage.storage2.loc_load.storage import Storage
-from coopstorage.storage2.loc_load import dcs
+from coopstorage.storage.loc_load.storage import Storage
+from coopstorage.storage.loc_load import dcs
 
 logger = logging.getLogger(__name__)
 

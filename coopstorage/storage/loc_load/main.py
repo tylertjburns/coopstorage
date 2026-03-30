@@ -1,16 +1,16 @@
 from typing import Union, Tuple, Iterable, List
 from fastapi import FastAPI, Response
 from pydantic import BaseModel
-from coopstorage.storage2.loc_load.transferRequest import TransferRequestCriteria
-from coopstorage.storage2.loc_load.storage import Storage
-from coopstorage.storage2.loc_load.location import Location
+from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria
+from coopstorage.storage.loc_load.storage import Storage
+from coopstorage.storage.loc_load.location import Location
 from cooptools.common import LETTERS
-import coopstorage.storage2.loc_load.dcs as dcs
-import coopstorage.storage2.loc_load.channel_processors as cps
+import coopstorage.storage.loc_load.dcs as dcs
+import coopstorage.storage.loc_load.channel_processors as cps
 import logging
-from coopstorage.storage2.loc_load.data.storageDataStore import StorageDataStore
+from coopstorage.storage.loc_load.data.storageDataStore import StorageDataStore
 from pprint import pprint
-from coopstorage.storage2.loc_load import qualifiers as qs
+from coopstorage.storage.loc_load import qualifiers as qs
 
 logger = logging.getLogger(__name__)
 app = FastAPI()

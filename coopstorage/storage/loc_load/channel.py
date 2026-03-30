@@ -1,6 +1,6 @@
 import uuid
 import logging
-import coopstorage.storage2.loc_load.channel_processors as cps
+import coopstorage.storage.loc_load.channel_processors as cps
 from typing import Protocol, List, Optional, Iterable, Dict
 from cooptools.protocols import UniqueIdentifier
 from cooptools.dataStore.dataStoreProtocol import DataStoreProtocol

@@ -9,14 +9,14 @@ Covers:
 """
 import unittest
 
-import coopstorage.storage2.loc_load.dcs as dcs
-import coopstorage.storage2.loc_load.channel_processors as cps
-from coopstorage.storage2.loc_load.location import Location
-from coopstorage.storage2.loc_load.transferRequest import (
+import coopstorage.storage.loc_load.dcs as dcs
+import coopstorage.storage.loc_load.channel_processors as cps
+from coopstorage.storage.loc_load.location import Location
+from coopstorage.storage.loc_load.transferRequest import (
     TransferRequestCriteria,
     TransferRequest,
 )
-from coopstorage.storage2.loc_load.qualifiers import LocationQualifier, ContainerQualifier
+from coopstorage.storage.loc_load.qualifiers import LocationQualifier, ContainerQualifier
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 

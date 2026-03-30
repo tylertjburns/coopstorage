@@ -1,5 +1,5 @@
 from typing import Protocol, Iterable
-import coopstorage.storage2.loc_load.dcs as dcs
+import coopstorage.storage.loc_load.dcs as dcs
 
 class IStorer(Protocol):
     def store(self,

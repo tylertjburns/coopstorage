@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field, asdict
-import coopstorage.storage2.loc_load.dcs as dcs
-import coopstorage.storage2.loc_load.qualifiers as lq
-from coopstorage.storage2.loc_load.location import Location
+import coopstorage.storage.loc_load.dcs as dcs
+import coopstorage.storage.loc_load.qualifiers as lq
+from coopstorage.storage.loc_load.location import Location
 import logging
 from pprint import pformat
 from typing import Self, Dict

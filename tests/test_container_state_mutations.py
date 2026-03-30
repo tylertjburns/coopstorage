@@ -8,10 +8,10 @@ Covers:
 import unittest
 
 from cooptools.qualifiers import WhiteBlackListQualifier
-from coopstorage.storage2.loc_load.dcs import (
+from coopstorage.storage.loc_load.dcs import (
     Container, ContainerContent, UoMCapacity, UnitOfMeasure, Resource
 )
-from coopstorage.storage2.loc_load.container_state_mutations import (
+from coopstorage.storage.loc_load.container_state_mutations import (
     add_content_to_container,
     remove_content_from_container,
 )

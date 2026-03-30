@@ -5,17 +5,17 @@ import uuid
 
 from cooptools.register import Register
 from cooptools.reservation.reservationmanager import ReservationManager
-import coopstorage.storage2.loc_load.dcs as dcs
-import coopstorage.storage2.loc_load.exceptions as errs
-import coopstorage.storage2.loc_load.container_state_mutations as csm
+import coopstorage.storage.loc_load.dcs as dcs
+import coopstorage.storage.loc_load.exceptions as errs
+import coopstorage.storage.loc_load.container_state_mutations as csm
 from typing import Dict, Iterable, Callable, List, Type, Tuple
 from cooptools.protocols import UniqueIdentifier
-from coopstorage.storage2.loc_load.location import Location
-import coopstorage.storage2.loc_load.qualifiers as qs
-from coopstorage.storage2.loc_load.transferRequest import TransferRequestCriteria, TransferRequest
+from coopstorage.storage.loc_load.location import Location
+import coopstorage.storage.loc_load.qualifiers as qs
+from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria, TransferRequest
 import cooptools.common as comm
 from pprint import pprint
-from coopstorage.storage2.loc_load import data as data
+from coopstorage.storage.loc_load import data as data
 from cooptools.qualifiers import PatternMatchQualifier
 
 logger = logging.getLogger(__name__)
@@ -278,7 +278,7 @@ class Storage:
 
     def content_at_location(self, loc_id: UniqueIdentifier) -> List[dcs.ContainerContent]:
         """All ContainerContent across every container at a location, aggregated by (resource, uom)."""
-        from coopstorage.storage2.loc_load.container_state_mutations import _merge_contents
+        from coopstorage.storage.loc_load.container_state_mutations import _merge_contents
         self._verify_loc(loc_id)
         loc = self._data_store.LocationsData.get(ids=[loc_id])[loc_id]
         all_contents = [
@@ -310,10 +310,10 @@ class Storage:
 if __name__ == "__main__":
     from cooptools.common import LETTERS
     from cooptools.randoms import a_string
-    import coopstorage.storage2.loc_load.channel_processors as cps
-    from coopstorage.storage2mongo import TEST_DATA
+    import coopstorage.storage.loc_load.channel_processors as cps
+    from coopstorage.storagemongo import TEST_DATA
     logging.basicConfig(level=logging.INFO)
-    from coopstorage.storage2.loc_load.data import MongoCollectionDataStore
+    from coopstorage.storage.loc_load.data import MongoCollectionDataStore
 
     def init_a_storage(
 

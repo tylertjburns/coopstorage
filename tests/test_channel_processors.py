@@ -10,7 +10,7 @@ Covers all 10 processor types:
 """
 import unittest
 
-from coopstorage.storage2.loc_load.channel_processors import (
+from coopstorage.storage.loc_load.channel_processors import (
     AllAvailableChannelProcessor,
     AllAvailableFlowChannelProcessor,
     AllAvailableFlowBackwardChannelProcessor,

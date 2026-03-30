@@ -1,11 +1,11 @@
 import logging
 import uuid
 
-import coopstorage.storage2.loc_load.dcs as dcs
+import coopstorage.storage.loc_load.dcs as dcs
 from cooptools.protocols import UniqueIdentifier
 from typing import List, Optional, Dict, Iterable, Self
 from cooptools.geometry_utils import vector_utils as vec
-from coopstorage.storage2.loc_load.channel import Channel
+from coopstorage.storage.loc_load.channel import Channel
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ class Location:
 
 
 if __name__ == "__main__":
-    import coopstorage.storage2.loc_load.channel_processors as cps
+    import coopstorage.storage.loc_load.channel_processors as cps
     logging.basicConfig(level=logging.DEBUG)
     l_a = Location(
         id='a',

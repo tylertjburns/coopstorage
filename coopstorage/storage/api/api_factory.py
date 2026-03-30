@@ -1,11 +1,11 @@
 import logging
 from fastapi import FastAPI
 
-from coopstorage.storage2.loc_load.storage import Storage
-from coopstorage.storage2.loc_load.data.storageDataStore import StorageDataStore
-from coopstorage.storage2.api.routers.container_router import container_router_factory
-from coopstorage.storage2.api.routers.location_router import location_router_factory
-from coopstorage.storage2.api.routers.transfer_request_router import transfer_request_router_factory
+from coopstorage.storage.loc_load.storage import Storage
+from coopstorage.storage.loc_load.data.storageDataStore import StorageDataStore
+from coopstorage.storage.api.routers.container_router import container_router_factory
+from coopstorage.storage.api.routers.location_router import location_router_factory
+from coopstorage.storage.api.routers.transfer_request_router import transfer_request_router_factory
 
 logger = logging.getLogger(__name__)
 
