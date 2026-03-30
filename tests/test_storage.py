@@ -24,7 +24,11 @@ from coopstorage.storage2.loc_load.location import Location
 from coopstorage.storage2.loc_load.qualifiers import LocationQualifier, ContainerQualifier
 from coopstorage.storage2.loc_load.storage import Storage
 from coopstorage.storage2.loc_load.transferRequest import TransferRequestCriteria
-from coopstorage.storage2.loc_load.exceptions import NoLocationsMatchFilterCriteriaException
+from coopstorage.storage2.loc_load.exceptions import (
+    NoLocationsMatchFilterCriteriaException,
+    UnexpectedContainerCountException,
+)
+from coopstorage.storage2.loc_load.dcs import ContainerContent, UnitOfMeasure, Resource
 from cooptools.qualifiers import PatternMatchQualifier
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -371,6 +375,90 @@ class TestThreadSafety(unittest.TestCase):
 
         self.assertEqual(len(errors), 0)
         self.assertEqual(len(s.get_containers()), 50)
+
+
+# ── add/remove content at location ────────────────────────────────────────────
+
+EACH = UnitOfMeasure(name="EA")
+SKU_A = Resource(name="SKU_A")
+SKU_B = Resource(name="SKU_B")
+
+def _content(resource=None, uom=None, qty=1.0):
+    return ContainerContent(resource=resource or SKU_A, uom=uom or EACH, qty=qty)
+
+def _bulk_storage(loc_id='BIN'):
+    """One location with capacity=1, one permanent container already stored."""
+    s = Storage()
+    s.register_locs([_loc(loc_id, capacity=1)])
+    s.register_containers([_load('C1')])
+    s.handle_transfer_requests([
+        TransferRequestCriteria(
+            new_container=_load('C1'),
+            dest_loc_query_args=LocationQualifier(at_least_capacity=1)
+        )
+    ])
+    return s
+
+
+class TestAddContentAtLocation(unittest.TestCase):
+
+    def test_add_content_increases_qty(self):
+        s = _bulk_storage()
+        s.add_content_to_container_at_location('BIN', [_content(qty=5.0)])
+        container = list(s.get_containers().values())[0]
+        total = sum(c.qty for c in container.contents)
+        self.assertAlmostEqual(total, 5.0)
+
+    def test_add_content_twice_merges(self):
+        s = _bulk_storage()
+        s.add_content_to_container_at_location('BIN', [_content(qty=3.0)])
+        s.add_content_to_container_at_location('BIN', [_content(qty=4.0)])
+        container = list(s.get_containers().values())[0]
+        total = sum(c.qty for c in container.contents)
+        self.assertAlmostEqual(total, 7.0)
+
+    def test_add_content_unknown_loc_raises(self):
+        s = _bulk_storage()
+        with self.assertRaises(Exception):
+            s.add_content_to_container_at_location('NOPE', [_content(qty=1.0)])
+
+    def test_add_content_empty_loc_raises(self):
+        s = Storage()
+        s.register_locs([_loc('EMPTY', capacity=1)])
+        with self.assertRaises(UnexpectedContainerCountException):
+            s.add_content_to_container_at_location('EMPTY', [_content(qty=1.0)])
+
+
+class TestRemoveContentAtLocation(unittest.TestCase):
+
+    def _seeded(self, qty=10.0):
+        s = _bulk_storage()
+        s.add_content_to_container_at_location('BIN', [_content(qty=qty)])
+        return s
+
+    def test_remove_content_decreases_qty(self):
+        s = self._seeded(10.0)
+        s.remove_content_from_container_at_location('BIN', _content(qty=3.0))
+        container = list(s.get_containers().values())[0]
+        total = sum(c.qty for c in container.contents)
+        self.assertAlmostEqual(total, 7.0)
+
+    def test_remove_all_content_empties_container(self):
+        s = self._seeded(5.0)
+        s.remove_content_from_container_at_location('BIN', _content(qty=5.0))
+        container = list(s.get_containers().values())[0]
+        self.assertEqual(len(container.contents), 0)
+
+    def test_remove_more_than_available_raises(self):
+        s = self._seeded(3.0)
+        with self.assertRaises(ValueError):
+            s.remove_content_from_container_at_location('BIN', _content(qty=10.0))
+
+    def test_remove_content_empty_loc_raises(self):
+        s = Storage()
+        s.register_locs([_loc('EMPTY', capacity=1)])
+        with self.assertRaises(UnexpectedContainerCountException):
+            s.remove_content_from_container_at_location('EMPTY', _content(qty=1.0))
 
 
 if __name__ == "__main__":

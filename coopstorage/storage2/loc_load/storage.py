@@ -7,6 +7,7 @@ from cooptools.register import Register
 from cooptools.reservation.reservationmanager import ReservationManager
 import coopstorage.storage2.loc_load.dcs as dcs
 import coopstorage.storage2.loc_load.exceptions as errs
+import coopstorage.storage2.loc_load.container_state_mutations as csm
 from typing import Dict, Iterable, Callable, List, Type, Tuple
 from cooptools.protocols import UniqueIdentifier
 from coopstorage.storage2.loc_load.location import Location
@@ -88,6 +89,34 @@ class Storage:
                   criteria: qs.ContainerQualifier=None)->Dict[UniqueIdentifier, dcs.Container]:
         with self._lock:
             return self._data_store.ContainersData.get(qualifier=criteria)
+
+    def add_content_to_container_at_location(self,
+                                             loc_id: UniqueIdentifier,
+                                             contents: List[dcs.ContainerContent]):
+        with self._lock:
+            self._verify_loc(loc_id)
+            loc = self._data_store.LocationsData.get(ids=[loc_id])[loc_id]
+            container_ids = loc.ContainerIds
+            if len(container_ids) != 1:
+                raise errs.UnexpectedContainerCountException(loc_id, expected=1, actual=len(container_ids))
+            container_id = list(container_ids)[0]
+            container = self._data_store.ContainersData.get(ids=[container_id])[container_id]
+            updated = csm.add_content_to_container(container, contents)
+            self._data_store.ContainersData.add_or_update([updated])
+
+    def remove_content_from_container_at_location(self,
+                                                  loc_id: UniqueIdentifier,
+                                                  content: dcs.ContainerContent):
+        with self._lock:
+            self._verify_loc(loc_id)
+            loc = self._data_store.LocationsData.get(ids=[loc_id])[loc_id]
+            container_ids = loc.ContainerIds
+            if len(container_ids) != 1:
+                raise errs.UnexpectedContainerCountException(loc_id, expected=1, actual=len(container_ids))
+            container_id = list(container_ids)[0]
+            container = self._data_store.ContainersData.get(ids=[container_id])[container_id]
+            updated = csm.remove_content_from_container(container, content)
+            self._data_store.ContainersData.add_or_update([updated])
 
 
     def filter(self,

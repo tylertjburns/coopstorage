@@ -14,3 +14,7 @@ class NoLocationsMatchFilterCriteriaException(Exception):
                  filter: LocationQualifier,
                  ):
         super().__init__(f"No location found that matches {filter}")
+
+class UnexpectedContainerCountException(Exception):
+    def __init__(self, loc_id: UniqueIdentifier, expected: int, actual: int):
+        super().__init__(f"Location {loc_id} has {actual} containers, expected {expected}")
