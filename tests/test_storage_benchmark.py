@@ -248,7 +248,7 @@ def run_benchmark(test: unittest.TestCase, cfg: BenchmarkConfig) -> None:
             t0 = time.perf_counter()
             removed_this_drain = 0
             print(f"  [drain start]  removing {to_remove:,} containers"
-                  f"  (concurrent={current_count:,} → {cfg.drain_target:,})", flush=True)
+                  f"  (concurrent={current_count:,} -> {cfg.drain_target:,})", flush=True)
             for _ in range(to_remove):
                 storage.handle_transfer_requests([
                     TransferRequestCriteria(
