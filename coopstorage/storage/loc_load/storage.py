@@ -235,12 +235,8 @@ class Storage:
                 if request.Ready:
                     self._handle_transfer_request(request)
                     self._data_store.TransferRequestsData.remove(requests=[request])
-                    # purge container if flagged on the criteria or the destination location
                     dest_deletes = request.dest_loc is not None and request.dest_loc.Meta.delete_on_receive
                     if request.criteria.delete_container_on_transfer or dest_deletes:
-                        self._data_store.ContainersData.remove(containers=[request.container])
-                    # container leaving storage entirely (source only, no dest) — purge it
-                    if request.source_loc is not None and request.dest_loc is None:
                         self._data_store.ContainersData.remove(containers=[request.container])
                 else:
                     logger.error(f"{pprint.pformat(request)}")
