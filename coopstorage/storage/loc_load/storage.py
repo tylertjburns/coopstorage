@@ -14,7 +14,6 @@ from coopstorage.storage.loc_load.location import Location
 import coopstorage.storage.loc_load.qualifiers as qs
 from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria, TransferRequest
 import cooptools.common as comm
-from pprint import pprint
 from coopstorage.storage.loc_load import data as data
 from cooptools.qualifiers import PatternMatchQualifier
 
@@ -188,7 +187,8 @@ class Storage:
                 all_containers=[criteria.container_query_args]
             ))
         elif source is not None:
-            container = source.get_removable_container_ids()[0]
+            container_id = list(source.get_removable_container_ids().values())[0]
+            container = self._data_store.ContainersData.get(ids=[container_id])[container_id]
 
         return TransferRequest(
             criteria=criteria,
@@ -248,7 +248,7 @@ class Storage:
         ret = {}
         loc_map = self._data_store.LocationsData.get()
         container_map = self._data_store.ContainersData.get()
-        for id, loc in loc_map.items():
+        for _, loc in loc_map.items():
             for container_id in loc.ContainerIds:
                 ret[container_map[container_id]] = loc
 

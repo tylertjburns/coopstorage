@@ -56,7 +56,8 @@ class Location:
     def get_addable_positions(self):
         return self._channel.get_addable_positions()
 
-    def get_removable_container_ids(self):
+    def get_removable_container_ids(self) -> Dict[int, UniqueIdentifier]:
+        """Returns {channel_position: container_id} for all currently removable positions."""
         return self._channel.get_removable_ids()
 
     def store_containers(self, container_ids: Iterable[UniqueIdentifier]):
