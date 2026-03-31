@@ -64,7 +64,8 @@ class LocationQualifier:
 
     def check_if_qualifies(self,
                            loc: Location,
-                           container_provider: ContainerByIdProvider = None) -> bool:
+                           container_provider: ContainerByIdProvider = None,
+                           container: Optional[dcs.Container] = None) -> bool:
         # Disqualify on Pattern
         if self.id_pattern is not None and not _pattern_qualifies(self.id_pattern, str(loc.Id)):
             return False
@@ -76,6 +77,11 @@ class LocationQualifier:
         # Disqualify on Min Dims
         if self.min_dims is not None and not _dims_within_min(loc.Meta.dims, self.min_dims):
             return False
+
+        # Disqualify if the container's dims don't fit within a slot at this location
+        if container is not None:
+            if not _dims_within_max(container.uom.dimensions, loc.SlotDims):
+                return False
 
         # Disqualify if doesn't have any of any_containers
         if self.any_containers is not None:

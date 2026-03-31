@@ -169,14 +169,16 @@ class Storage:
 
 
     def filter(self,
-               filter: qs.LocationQualifier=None) -> List[Location]:
-        if filter is None:
+               filter: qs.LocationQualifier = None,
+               container: dcs.Container = None) -> List[Location]:
+        if filter is None and container is None:
             return list(self._data_store.LocationsData.iter_values())
 
         container_provider = self._data_store.ContainersData.get
         return [
             loc for loc in self._data_store.LocationsData.iter_values()
-            if filter.check_if_qualifies(loc, container_provider=container_provider)
+            if filter is None or filter.check_if_qualifies(
+                loc, container_provider=container_provider, container=container)
         ]
 
 
@@ -189,17 +191,19 @@ class Storage:
 
     def select_location(self,
                         filter: qs.LocationQualifier = None,
-                        evaluator: Callable[[Location], float] = None):
+                        evaluator: Callable[[Location], float] = None,
+                        container: dcs.Container = None):
         # Fast path: no custom evaluator — return the first qualifying location immediately
         if evaluator is None:
             container_provider = self._data_store.ContainersData.get
             for loc in self._data_store.LocationsData.iter_values():
-                if filter is None or filter.check_if_qualifies(loc, container_provider=container_provider):
+                if filter is None or filter.check_if_qualifies(
+                        loc, container_provider=container_provider, container=container):
                     return loc
             raise errs.NoLocationsMatchFilterCriteriaException(filter)
 
         # Scored path: collect all options, evaluate, and sort
-        options = self.filter(filter=filter)
+        options = self.filter(filter=filter, container=container)
         if len(options) == 0:
             raise errs.NoLocationsMatchFilterCriteriaException(filter)
         scores = self.evaluate(options, evaluator)
@@ -211,34 +215,40 @@ class Storage:
             self,
             criteria: TransferRequestCriteria
     ) -> TransferRequest:
+        # ── Source & Container (peer resolvers) ───────────────────────────────
+        # Either defines the other; if both supplied, validate consistency.
         source = None
-        if criteria.source_loc_query_args is not None:
-            source = self.select_location(criteria.source_loc_query_args)
-
-        dest = None
-        if criteria.dest_loc_query_args is not None:
-            dest = self.select_location(criteria.dest_loc_query_args)
-        elif criteria.new_container is not None and \
-            criteria.dest_loc_query_args is None:
-            dest = self.select_location()
-
-
         container = None
-        if criteria.container_query_args is not None and source is not None:
-            container = self.select_container(loc=source,
-                                    filter=criteria.container_query_args)
-        elif criteria.container_query_args is None and \
-            criteria.new_container is not None:
-            container = criteria.new_container
-        elif criteria.container_query_args is not None and source is None:
+
+        if criteria.source_loc_query_args is not None and criteria.container_query_args is not None:
+            # Both explicit: find source first, then validate container exists there
+            source = self.select_location(criteria.source_loc_query_args)
+            container = self.select_container(loc=source, filter=criteria.container_query_args)
+
+        elif criteria.source_loc_query_args is not None:
+            # Source only: infer container from whichever is removable at that location
+            source = self.select_location(criteria.source_loc_query_args)
+            container_id = list(source.get_removable_container_ids().values())[0]
+            container = self._data_store.ContainersData.get(ids=[container_id])[container_id]
+
+        elif criteria.container_query_args is not None:
+            # Container only: find it across all storage, then infer source location
             container = comm.filter(self._data_store.ContainersData.get().values(),
-                               criteria.container_query_args.check_if_qualifies)[0]
+                                    criteria.container_query_args.check_if_qualifies)[0]
             source = self.select_location(filter=qs.LocationQualifier(
                 all_containers=[criteria.container_query_args]
             ))
-        elif source is not None:
-            container_id = list(source.get_removable_container_ids().values())[0]
-            container = self._data_store.ContainersData.get(ids=[container_id])[container_id]
+
+        elif criteria.new_container is not None:
+            # New container arriving — no source
+            container = criteria.new_container
+
+        # ── Dest (resolved after container is known; slot fit enforced) ───────
+        dest = None
+        if criteria.dest_loc_query_args is not None:
+            dest = self.select_location(criteria.dest_loc_query_args, container=container)
+        elif criteria.new_container is not None and criteria.dest_loc_query_args is None:
+            dest = self.select_location(container=container)
 
         return TransferRequest(
             criteria=criteria,

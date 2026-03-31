@@ -295,5 +295,240 @@ class TestLocationQualifierHasContent(unittest.TestCase):
             q.check_if_qualifies(loc)
 
 
+class TestLocationQualifierSlotFit(unittest.TestCase):
+    """Container dims are checked against loc.SlotDims when a container is passed."""
+
+    def _loc_with_axis(self, capacity, dims, channel_axis=0):
+        return Location(
+            id='A',
+            location_meta=dcs.LocationMeta(
+                dims=dims,
+                channel_processor=cps.AllAvailableChannelProcessor(),
+                capacity=capacity,
+                channel_axis=channel_axis,
+            ),
+            coords=(0, 0, 0),
+        )
+
+    def test_no_container_always_passes(self):
+        """Without a container, slot fit is not checked."""
+        loc = self._loc_with_axis(capacity=5, dims=(10.0, 10.0, 10.0))
+        # slot_dims = (2, 10, 10); no container provided → passes regardless
+        q = LocationQualifier()
+        self.assertTrue(q.check_if_qualifies(loc, container=None))
+
+    def test_container_fits_in_slot_passes(self):
+        """Container whose dims are <= slot_dims qualifies."""
+        loc = self._loc_with_axis(capacity=5, dims=(10.0, 10.0, 10.0))
+        # slot_dims along axis 0 = 10/5 = 2; other axes = 10
+        small = dcs.Container(id='S', uom=dcs.UnitOfMeasure(name='EA', dimensions=(1.0, 5.0, 5.0)))
+        q = LocationQualifier()
+        self.assertTrue(q.check_if_qualifies(loc, container=small))
+
+    def test_container_exactly_slot_size_passes(self):
+        """Container whose dims exactly match slot_dims qualifies (boundary condition)."""
+        loc = self._loc_with_axis(capacity=5, dims=(10.0, 10.0, 10.0))
+        # slot_dims = (2, 10, 10)
+        exact = dcs.Container(id='E', uom=dcs.UnitOfMeasure(name='EA', dimensions=(2.0, 10.0, 10.0)))
+        q = LocationQualifier()
+        self.assertTrue(q.check_if_qualifies(loc, container=exact))
+
+    def test_container_too_wide_for_slot_fails(self):
+        """Container whose axis-0 dim exceeds slot_dims[0] disqualifies."""
+        loc = self._loc_with_axis(capacity=5, dims=(10.0, 10.0, 10.0))
+        # slot_dims along axis 0 = 2; container needs 3
+        too_wide = dcs.Container(id='W', uom=dcs.UnitOfMeasure(name='EA', dimensions=(3.0, 5.0, 5.0)))
+        q = LocationQualifier()
+        self.assertFalse(q.check_if_qualifies(loc, container=too_wide))
+
+    def test_container_too_tall_for_slot_fails(self):
+        """Container oversized on a non-channel axis also disqualifies."""
+        loc = self._loc_with_axis(capacity=5, dims=(10.0, 10.0, 10.0))
+        # slot_dims = (2, 10, 10); container is fine on axis 0 but too tall on axis 2
+        too_tall = dcs.Container(id='T', uom=dcs.UnitOfMeasure(name='EA', dimensions=(1.0, 5.0, 11.0)))
+        q = LocationQualifier()
+        self.assertFalse(q.check_if_qualifies(loc, container=too_tall))
+
+    def test_slot_fit_checked_along_correct_axis(self):
+        """channel_axis=1 means slots are divided along Y; X and Z fill the full location."""
+        loc = self._loc_with_axis(capacity=2, dims=(10.0, 8.0, 10.0), channel_axis=1)
+        # slot_dims = (10, 4, 10)
+        fits = dcs.Container(id='F', uom=dcs.UnitOfMeasure(name='EA', dimensions=(5.0, 4.0, 5.0)))
+        self.assertTrue(LocationQualifier().check_if_qualifies(loc, container=fits))
+
+        too_deep = dcs.Container(id='D', uom=dcs.UnitOfMeasure(name='EA', dimensions=(5.0, 5.0, 5.0)))
+        self.assertFalse(LocationQualifier().check_if_qualifies(loc, container=too_deep))
+
+    def test_slot_fit_combined_with_other_criteria(self):
+        """Slot fit check composes with other qualifier criteria (all must pass)."""
+        loc = self._loc_with_axis(capacity=5, dims=(10.0, 10.0, 10.0))
+        # slot_dims = (2, 10, 10); container fits in slot but id_pattern won't match
+        small = dcs.Container(id='S', uom=dcs.UnitOfMeasure(name='EA', dimensions=(1.0, 1.0, 1.0)))
+        from cooptools.qualifiers import PatternMatchQualifier
+        q = LocationQualifier(id_pattern=PatternMatchQualifier(regex='^Z'))
+        self.assertFalse(q.check_if_qualifies(loc, container=small))
+
+
+class TestStorageResolveSourceContainerDest(unittest.TestCase):
+    """
+    Tests for the reordered resolve_transfer_request_criteria logic:
+    - source_only → container inferred from source
+    - container_only → source inferred from where container lives
+    - both → validate together; error if container not at source
+    - new_container → no source, dest selected with slot-fit
+    - dest is always resolved last; slot fit enforced via container dims
+    """
+
+    def _storage(self, **loc_kwargs):
+        """Storage with locations A and B, each capacity=5, dims=(10,10,10)."""
+        from coopstorage.storage.loc_load.storage import Storage
+        from coopstorage.storage.loc_load.location import Location
+
+        def _make_loc(lid, dims=(10.0, 10.0, 10.0), capacity=5):
+            return Location(
+                id=lid,
+                location_meta=dcs.LocationMeta(
+                    dims=dims,
+                    channel_processor=cps.AllAvailableChannelProcessor(),
+                    capacity=capacity,
+                ),
+                coords=(0, 0, 0),
+            )
+
+        s = Storage()
+        s.register_locs([_make_loc('A'), _make_loc('B')])
+        return s
+
+    def _seed(self, storage, container_id='C1', loc_id='A'):
+        """Place a container at loc_id."""
+        from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria
+        storage.handle_transfer_requests([
+            TransferRequestCriteria(
+                new_container=dcs.Container(id=container_id),
+                dest_loc_query_args=LocationQualifier(
+                    id_pattern=PatternMatchQualifier(regex=f'^{loc_id}$')
+                ),
+            )
+        ])
+
+    def test_source_only_infers_container(self):
+        """source_loc_query_args alone: container inferred from whatever is at source."""
+        from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria
+        s = self._storage()
+        self._seed(s, 'C1', 'A')
+
+        s.handle_transfer_requests([
+            TransferRequestCriteria(
+                source_loc_query_args=LocationQualifier(id_pattern=PatternMatchQualifier(regex='^A$')),
+                dest_loc_query_args=LocationQualifier(id_pattern=PatternMatchQualifier(regex='^B$')),
+            )
+        ])
+        locs = s.get_locs()
+        self.assertNotIn('C1', locs['A'].ContainerIds)
+        self.assertIn('C1', locs['B'].ContainerIds)
+
+    def test_container_only_infers_source(self):
+        """container_query_args alone: source inferred from where that container lives."""
+        from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria
+        s = self._storage()
+        self._seed(s, 'C1', 'A')
+
+        s.handle_transfer_requests([
+            TransferRequestCriteria(
+                container_query_args=ContainerQualifier(
+                    pattern=PatternMatchQualifier(regex='^C1$')
+                ),
+                dest_loc_query_args=LocationQualifier(id_pattern=PatternMatchQualifier(regex='^B$')),
+            )
+        ])
+        locs = s.get_locs()
+        self.assertNotIn('C1', locs['A'].ContainerIds)
+        self.assertIn('C1', locs['B'].ContainerIds)
+
+    def test_both_source_and_container_consistent(self):
+        """When both source and container criteria are given and consistent, transfer succeeds."""
+        from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria
+        s = self._storage()
+        self._seed(s, 'C1', 'A')
+
+        s.handle_transfer_requests([
+            TransferRequestCriteria(
+                source_loc_query_args=LocationQualifier(id_pattern=PatternMatchQualifier(regex='^A$')),
+                container_query_args=ContainerQualifier(pattern=PatternMatchQualifier(regex='^C1$')),
+                dest_loc_query_args=LocationQualifier(id_pattern=PatternMatchQualifier(regex='^B$')),
+            )
+        ])
+        locs = s.get_locs()
+        self.assertIn('C1', locs['B'].ContainerIds)
+
+    def test_slot_fit_enforced_on_dest_selection(self):
+        """Dest is skipped when container dims exceed slot_dims; the fitting location is chosen."""
+        from coopstorage.storage.loc_load.storage import Storage
+        from coopstorage.storage.loc_load.location import Location
+        from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria
+
+        # SMALL: dims=(4,10,10), capacity=2 → slot_dims=(2,10,10)  ← too narrow for BIG container
+        # LARGE: dims=(20,10,10), capacity=2 → slot_dims=(10,10,10) ← fits BIG container
+        def _loc(lid, dims, capacity=2):
+            return Location(
+                id=lid,
+                location_meta=dcs.LocationMeta(
+                    dims=dims,
+                    channel_processor=cps.AllAvailableChannelProcessor(),
+                    capacity=capacity,
+                ),
+                coords=(0, 0, 0),
+            )
+
+        s = Storage()
+        s.register_locs([_loc('SMALL', (4.0, 10.0, 10.0)), _loc('LARGE', (20.0, 10.0, 10.0))])
+
+        big_uom = dcs.UnitOfMeasure(name='PALLET', dimensions=(8.0, 8.0, 8.0))
+        big_container = dcs.Container(id='BIG', uom=big_uom)
+
+        s.handle_transfer_requests([
+            TransferRequestCriteria(
+                new_container=big_container,
+                dest_loc_query_args=LocationQualifier(at_least_capacity=1),
+            )
+        ])
+        locs = s.get_locs()
+        self.assertNotIn('BIG', locs['SMALL'].ContainerIds)
+        self.assertIn('BIG', locs['LARGE'].ContainerIds)
+
+    def test_no_qualifying_dest_raises(self):
+        """If container is too large for every available location, NoLocations is raised."""
+        from coopstorage.storage.loc_load.storage import Storage
+        from coopstorage.storage.loc_load.location import Location
+        from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria
+        from coopstorage.storage.loc_load.exceptions import NoLocationsMatchFilterCriteriaException
+
+        def _loc(lid):
+            return Location(
+                id=lid,
+                location_meta=dcs.LocationMeta(
+                    dims=(4.0, 4.0, 4.0),
+                    channel_processor=cps.AllAvailableChannelProcessor(),
+                    capacity=2,
+                ),
+                coords=(0, 0, 0),
+            )
+
+        s = Storage()
+        s.register_locs([_loc('TINY')])
+
+        # slot_dims = (2, 4, 4); container needs (5, 4, 4) → won't fit anywhere
+        huge_uom = dcs.UnitOfMeasure(name='BIG', dimensions=(5.0, 4.0, 4.0))
+        huge_container = dcs.Container(id='HUGE', uom=huge_uom)
+
+        with self.assertRaises(NoLocationsMatchFilterCriteriaException):
+            s.handle_transfer_requests([
+                TransferRequestCriteria(
+                    new_container=huge_container,
+                    dest_loc_query_args=LocationQualifier(at_least_capacity=1),
+                )
+            ])
+
+
 if __name__ == "__main__":
     unittest.main()
