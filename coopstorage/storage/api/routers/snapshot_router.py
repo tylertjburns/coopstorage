@@ -36,8 +36,11 @@ def _serialize_location(loc: Location, all_containers: dict) -> dict:
             'dims': list(loc.Meta.dims),
             'channel_processor': type(loc.Meta.channel_processor).__name__,
             'capacity': loc.Capacity,
+            'channel_axis': loc.Meta.channel_axis,
             'delete_on_receive': loc.Meta.delete_on_receive,
         },
+        'slot_dims':    list(loc.SlotDims),
+        'slot_offsets': [list(o) for o in loc.SlotOffsets],
         'slots': slots,
         'containers': loc_containers,
     }

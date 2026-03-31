@@ -85,8 +85,11 @@ class Storage:
                             'dims': list(loc.Meta.dims),
                             'channel_processor': type(loc.Meta.channel_processor).__name__,
                             'capacity': loc.Capacity,
+                            'channel_axis': loc.Meta.channel_axis,
                             'delete_on_receive': loc.Meta.delete_on_receive,
                         },
+                        'slot_dims':    list(loc.SlotDims),
+                        'slot_offsets': [list(o) for o in loc.SlotOffsets],
                         'slots': _slots_for_loc(loc),
                         'containers': {}
                     })

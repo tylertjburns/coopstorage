@@ -188,7 +188,109 @@ function drawRect(loc, sx, sy, occupied) {
   }
 }
 
+// ─── 3-D geometry helpers ─────────────────────────────────────────────────────
+
+// Fill a polygon defined by projected screen points, then stroke it.
+function _face(pts, fill, stroke) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+  ctx.fillStyle = fill;   ctx.fill();
+  ctx.strokeStyle = stroke; ctx.lineWidth = 0.5; ctx.stroke();
+}
+
+// Draw the three visible isometric faces of an axis-aligned box.
+// (wx,wy,wz) is the min-corner; (dx,dy,dz) are the extents.
+// Camera is at (+X, -Y, +Z) so visible faces are: top (z+), right (x+), front (y-).
+function drawIsoCube(wx, wy, wz, dx, dy, dz,
+                     topColor, rightColor, frontColor, strokeColor) {
+  const p = (x, y, z) => project(x, y, z);
+  // top face (z+ side)
+  _face([p(wx,    wy+dy, wz+dz), p(wx+dx, wy+dy, wz+dz),
+         p(wx+dx, wy,    wz+dz), p(wx,    wy,    wz+dz)],
+        topColor, strokeColor);
+  // right face (x+ side)
+  _face([p(wx+dx, wy+dy, wz),    p(wx+dx, wy,    wz),
+         p(wx+dx, wy,    wz+dz), p(wx+dx, wy+dy, wz+dz)],
+        rightColor, strokeColor);
+  // front face (y- side)
+  _face([p(wx,    wy, wz),    p(wx+dx, wy, wz),
+         p(wx+dx, wy, wz+dz), p(wx,    wy, wz+dz)],
+        frontColor, strokeColor);
+}
+
+// Draw the XY footprint of a box (top-down 2-D view).
+function drawTopBox(wx, wy, dx, dy, fill, stroke) {
+  const [x0, y0] = project(wx,    wy,    0);
+  const [x1, y1] = project(wx+dx, wy+dy, 0);
+  ctx.fillStyle = fill; ctx.strokeStyle = stroke; ctx.lineWidth = 0.5;
+  ctx.fillRect(x0, y0, x1-x0, y1-y0);
+  ctx.strokeRect(x0, y0, x1-x0, y1-y0);
+}
+
+// ─── Detail renderer (LOD_CLOSE and above) ────────────────────────────────────
+
 function drawDetail(loc, sx, sy) {
+  // If location carries spatial geometry, render 3-D cubes.
+  if (loc.slot_dims && loc.slot_offsets) {
+    _drawDetail3D(loc);
+  } else {
+    _drawDetailCard(loc, sx, sy);
+  }
+}
+
+function _drawDetail3D(loc) {
+  const [wx, wy, wz] = loc.coords;
+  const [dx, dy, dz] = loc.meta.dims;
+
+  // Location bounding cube — subtle dark fill, grey outline
+  if (isIso) {
+    drawIsoCube(wx, wy, wz, dx, dy, dz,
+      'rgba(26,31,38,0.8)', 'rgba(18,22,28,0.8)', 'rgba(18,22,28,0.8)', '#30363d');
+  } else {
+    drawTopBox(wx, wy, dx, dy, 'rgba(26,31,38,0.8)', '#30363d');
+  }
+
+  // Slot cubes
+  const [sdx, sdy, sdz] = loc.slot_dims;
+  for (let i = 0; i < loc.slots.length; i++) {
+    const [ox, oy, oz] = loc.slot_offsets[i];
+    const cid = loc.slots[i];
+    const occ = cid !== null;
+
+    if (isIso) {
+      drawIsoCube(
+        wx+ox, wy+oy, wz+oz, sdx, sdy, sdz,
+        occ ? '#0d2a0d' : '#0d1117',
+        occ ? '#071a07' : '#090c0f',
+        occ ? '#071a07' : '#090c0f',
+        occ ? '#238636' : '#21262d'
+      );
+    } else {
+      drawTopBox(wx+ox, wy+oy, sdx, sdy,
+        occ ? '#0d2a0d' : '#0d1117',
+        occ ? '#238636' : '#21262d');
+    }
+
+    // Container label inside slot when zoomed close enough
+    if (cid && scale > 30) {
+      const [cx, cy] = project(wx+ox + sdx/2, wy+oy + sdy/2, wz+oz + sdz/2);
+      ctx.fillStyle = '#7ee787'; ctx.font = '7px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(cid).slice(0, 5), cx, cy);
+    }
+  }
+
+  // Location ID label floated above the bounding cube
+  const [lx, ly] = project(wx + dx/2, wy + dy/2, wz + dz + 1);
+  ctx.fillStyle = '#484f58'; ctx.font = '8px monospace';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText(String(loc.id).slice(0, 14), lx, ly);
+}
+
+// Fallback: flat screen-space card (used when slot_dims/slot_offsets are absent)
+function _drawDetailCard(loc, sx, sy) {
   const nSlots  = loc.slots.length;
   const slotW   = 20, slotH = 20, gap = 3;
   const padH    = 12, padV = 20;
@@ -196,53 +298,34 @@ function drawDetail(loc, sx, sy) {
   const totalH  = slotH + padV * 2;
   const x0 = sx - totalW / 2, y0 = sy - totalH / 2;
 
-  // Background card
   ctx.fillStyle   = '#161b22';
   ctx.strokeStyle = '#30363d';
   ctx.lineWidth   = 1;
   ctx.fillRect(x0, y0, totalW, totalH);
   ctx.strokeRect(x0, y0, totalW, totalH);
 
-  // Location ID (top-left)
-  ctx.fillStyle    = '#8b949e';
-  ctx.font         = '9px monospace';
-  ctx.textAlign    = 'left';
-  ctx.textBaseline = 'top';
+  ctx.fillStyle    = '#8b949e'; ctx.font = '9px monospace';
+  ctx.textAlign    = 'left';   ctx.textBaseline = 'top';
   ctx.fillText(String(loc.id).slice(0, 14), x0 + 4, y0 + 3);
 
-  // Channel processor badge (top-right)
-  const proc = (loc.meta.channel_processor || '')
-    .replace('ChannelProcessor', '')
-    .replace('Flow', '·');
-  ctx.fillStyle = '#388bfd';
-  ctx.textAlign = 'right';
-  ctx.fillText(proc, x0 + totalW - 4, y0 + 3);
-
-  // Capacity used / total (bottom-right)
   const used = loc.slots.filter(s => s !== null).length;
   ctx.fillStyle = used > 0 ? '#3fb950' : '#484f58';
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'bottom';
+  ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
   ctx.fillText(`${used}/${nSlots}`, x0 + totalW - 4, y0 + totalH - 3);
 
-  // Slot boxes
   for (let i = 0; i < nSlots; i++) {
-    const cid  = loc.slots[i];
+    const cid   = loc.slots[i];
     const slotX = x0 + padH + i * (slotW + gap);
     const slotY = y0 + padV;
-
     ctx.fillStyle   = cid ? '#0d2a0d' : '#0d1117';
     ctx.strokeStyle = cid ? '#238636' : '#30363d';
     ctx.lineWidth   = 1;
     ctx.fillRect(slotX, slotY, slotW, slotH);
     ctx.strokeRect(slotX, slotY, slotW, slotH);
-
     if (cid) {
-      ctx.fillStyle    = '#7ee787';
-      ctx.font         = '7px monospace';
-      ctx.textAlign    = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(String(cid).slice(0, 5), slotX + slotW / 2, slotY + slotH / 2);
+      ctx.fillStyle = '#7ee787'; ctx.font = '7px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(cid).slice(0, 5), slotX + slotW/2, slotY + slotH/2);
     }
   }
 }
