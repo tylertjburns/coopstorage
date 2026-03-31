@@ -85,6 +85,14 @@ class BenchmarkConfig:
         return self.progress_every or self.add_batch_size
 
 
+MINI = BenchmarkConfig(
+    locs_per_type     = 1,
+    location_capacity = 5,
+    total_to_add      = 500,
+    track_sample_size = 20,
+    add_batch_size    = 25,
+)
+
 SMALL = BenchmarkConfig(
     locs_per_type     = 10,
     location_capacity = 5,

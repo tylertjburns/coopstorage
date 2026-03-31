@@ -30,6 +30,7 @@ import uvicorn
 
 from tests.test_storage_benchmark import (
     BenchmarkConfig,
+    MINI,
     SMALL,
     MEDIUM,
     LARGE,
@@ -40,6 +41,7 @@ from coopstorage.storage.api.api_factory import storage_api_factory
 
 # ── config map ────────────────────────────────────────────────────────────────
 _CONFIGS: dict[str, BenchmarkConfig] = {
+    "mini":  MINI,
     "small":  SMALL,
     "medium": MEDIUM,
     "large":  LARGE,
