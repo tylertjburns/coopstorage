@@ -121,8 +121,8 @@ function fitView() {
 // < LOD_MID  → dot
 // < LOD_CLOSE → labeled rect
 // >= LOD_CLOSE → slot detail
-const LOD_MID   = 3;
-const LOD_CLOSE = 18;
+const LOD_MID   = 1;
+const LOD_CLOSE = 5;
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
 function requestRender() {
@@ -202,22 +202,30 @@ function _face(pts, fill, stroke) {
 
 // Draw the three visible isometric faces of an axis-aligned box.
 // (wx,wy,wz) is the min-corner; (dx,dy,dz) are the extents.
-// Camera is at (+X, -Y, +Z) so visible faces are: top (z+), right (x+), front (y-).
+//
+// With rx=(wx-wy)*0.866, ry=(wx+wy)*0.5-wz the three visible faces are:
+//   left  (y+ side) — bottom-left  rhombus in screen space
+//   right (x+ side) — bottom-right rhombus in screen space
+//   top   (z+ side) — top diamond  in screen space
+//
+// y- is NOT a visible face: it projects onto the same screen area as x+ and
+// z+, and drawing it last would overwrite them with the wrong colour.
+// Draw order: left → right → top (back-to-front painter's algorithm).
 function drawIsoCube(wx, wy, wz, dx, dy, dz,
-                     topColor, rightColor, frontColor, strokeColor) {
+                     topColor, rightColor, leftColor, strokeColor) {
   const p = (x, y, z) => project(x, y, z);
-  // top face (z+ side)
+  // left face (y+ side — bottom-left in screen)
+  _face([p(wx,    wy+dy, wz),    p(wx+dx, wy+dy, wz),
+         p(wx+dx, wy+dy, wz+dz), p(wx,    wy+dy, wz+dz)],
+        leftColor, strokeColor);
+  // right face (x+ side — bottom-right in screen)
+  _face([p(wx+dx, wy,    wz),    p(wx+dx, wy+dy, wz),
+         p(wx+dx, wy+dy, wz+dz), p(wx+dx, wy,    wz+dz)],
+        rightColor, strokeColor);
+  // top face (z+ side — drawn last so it sits on top)
   _face([p(wx,    wy+dy, wz+dz), p(wx+dx, wy+dy, wz+dz),
          p(wx+dx, wy,    wz+dz), p(wx,    wy,    wz+dz)],
         topColor, strokeColor);
-  // right face (x+ side)
-  _face([p(wx+dx, wy+dy, wz),    p(wx+dx, wy,    wz),
-         p(wx+dx, wy,    wz+dz), p(wx+dx, wy+dy, wz+dz)],
-        rightColor, strokeColor);
-  // front face (y- side)
-  _face([p(wx,    wy, wz),    p(wx+dx, wy, wz),
-         p(wx+dx, wy, wz+dz), p(wx,    wy, wz+dz)],
-        frontColor, strokeColor);
 }
 
 // Draw the XY footprint of a box (top-down 2-D view).
@@ -260,21 +268,31 @@ function _drawDetail3D(loc) {
     const occ = cid !== null;
 
     if (isIso) {
-      drawIsoCube(
-        wx+ox, wy+oy, wz+oz, sdx, sdy, sdz,
-        occ ? '#0d2a0d' : '#0d1117',
-        occ ? '#071a07' : '#090c0f',
-        occ ? '#071a07' : '#090c0f',
-        occ ? '#238636' : '#21262d'
-      );
+      const p = (x, y, z) => project(x, y, z);
+      const sx2 = wx+ox, sy2 = wy+oy, sz2 = wz+oz;
+      const topCol  = occ ? '#1a4a1a' : '#1c2128';
+      const sideCol = occ ? '#0f2e0f' : '#141a1f';
+      const stroke  = occ ? '#3fb950' : '#444c56';
+      // y+ face: left wall (bottom-left in screen)
+      _face([p(sx2,     sy2+sdy, sz2),     p(sx2+sdx, sy2+sdy, sz2),
+             p(sx2+sdx, sy2+sdy, sz2+sdz), p(sx2,     sy2+sdy, sz2+sdz)],
+            sideCol, stroke);
+      // x+ face: right wall / divider between slots
+      _face([p(sx2+sdx, sy2,     sz2),     p(sx2+sdx, sy2+sdy, sz2),
+             p(sx2+sdx, sy2+sdy, sz2+sdz), p(sx2+sdx, sy2,     sz2+sdz)],
+            sideCol, stroke);
+      // z+ top face
+      _face([p(sx2,     sy2+sdy, sz2+sdz), p(sx2+sdx, sy2+sdy, sz2+sdz),
+             p(sx2+sdx, sy2,     sz2+sdz), p(sx2,     sy2,     sz2+sdz)],
+            topCol, stroke);
     } else {
       drawTopBox(wx+ox, wy+oy, sdx, sdy,
-        occ ? '#0d2a0d' : '#0d1117',
-        occ ? '#238636' : '#21262d');
+        occ ? '#1a4a1a' : '#1c2128',
+        occ ? '#3fb950' : '#444c56');
     }
 
     // Container label inside slot when zoomed close enough
-    if (cid && scale > 30) {
+    if (cid && scale > 10) {
       const [cx, cy] = project(wx+ox + sdx/2, wy+oy + sdy/2, wz+oz + sdz/2);
       ctx.fillStyle = '#7ee787'; ctx.font = '7px monospace';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
