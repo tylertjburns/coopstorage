@@ -25,6 +25,38 @@ class Location:
             init_state=channel_state
         )
         self._reservation_token = None
+        self._validate_geometry()
+
+    def _validate_geometry(self):
+        dims = self._meta.dims
+        axis = self._meta.channel_axis
+        if axis >= len(dims):
+            raise ValueError(
+                f"Location '{self._id}': channel_axis={axis} is out of range for dims {dims}"
+            )
+        if any(d <= 0 for d in dims):
+            raise ValueError(
+                f"Location '{self._id}': all dims must be > 0, got {dims}"
+            )
+
+    @property
+    def SlotDims(self) -> vec.FloatVec:
+        """3D size of each slot (location dims divided along channel_axis by capacity)."""
+        dims = list(self._meta.dims)
+        dims[self._meta.channel_axis] = dims[self._meta.channel_axis] / self.Capacity
+        return tuple(dims)
+
+    @property
+    def SlotOffsets(self) -> List[vec.FloatVec]:
+        """Per-slot offset from loc.Coords to that slot's origin corner."""
+        axis   = self._meta.channel_axis
+        step   = self.SlotDims[axis]
+        result = []
+        for i in range(self.Capacity):
+            off = [0.0] * len(self._meta.dims)
+            off[axis] = i * step
+            result.append(tuple(off))
+        return result
 
     @property
     def Capacity(self) -> int:
@@ -45,6 +77,10 @@ class Location:
     @property
     def Meta(self) -> dcs.LocationMeta:
         return self._meta
+
+    @property
+    def Coords(self) -> vec.FloatVec:
+        return self._coords
 
     @property
     def ContainerIds(self) -> List[UniqueIdentifier]:

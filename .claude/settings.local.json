@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from cooptools.qualifiers import WhiteBlackListQualifier; import inspect; print\\(inspect.getsource\\(WhiteBlackListQualifier\\)\\)\")"
+    ]
+  }
+}

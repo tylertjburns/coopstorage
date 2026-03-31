@@ -60,6 +60,7 @@ class LocationMeta(BaseDataClass):
     channel_processor: cps.IChannelProcessor = field(default=cps.AllAvailableChannelProcessor())
     boundary: IterVec = None
     capacity: int = 1
+    channel_axis: int = 0          # axis along which slots are packed (0=X, 1=Y, 2=Z)
     delete_on_receive: bool = False
 
     def __post_init__(self):
