@@ -47,7 +47,7 @@
   <button class="btn active" id="btn-iso">Isometric</button>
   <button class="btn"        id="btn-2d">Top-down</button>
   <button class="btn"        id="btn-fit">Fit view</button>
-  <span id="hint">Scroll to zoom · Drag to pan · Hover for detail</span>
+  <span id="hint">Scroll to zoom · Drag to pan · Pinch to zoom · Touch to pan · Hover for detail</span>
 </div>
 
 <div id="status">Connecting…</div>
@@ -375,6 +375,51 @@ canvas.addEventListener('wheel', e => {
   panY = e.clientY - (e.clientY - panY) * factor;
   scale *= factor;
   requestRender();
+}, { passive: false });
+
+// ─── Interaction: touch (pan + pinch-zoom) ────────────────────────────────────
+let lastTouchX = 0, lastTouchY = 0, lastPinchDist = null;
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (e.touches.length === 1) {
+    lastTouchX = e.touches[0].clientX;
+    lastTouchY = e.touches[0].clientY;
+    lastPinchDist = null;
+  } else if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    lastPinchDist = Math.hypot(dx, dy);
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (e.touches.length === 1 && lastPinchDist === null) {
+    panX += e.touches[0].clientX - lastTouchX;
+    panY += e.touches[0].clientY - lastTouchY;
+    lastTouchX = e.touches[0].clientX;
+    lastTouchY = e.touches[0].clientY;
+    requestRender();
+  } else if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const dist = Math.hypot(dx, dy);
+    if (lastPinchDist !== null) {
+      const factor = dist / lastPinchDist;
+      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      panX = cx - (cx - panX) * factor;
+      panY = cy - (cy - panY) * factor;
+      scale *= factor;
+      requestRender();
+    }
+    lastPinchDist = dist;
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  if (e.touches.length < 2) lastPinchDist = null;
 }, { passive: false });
 
 // ─── Interaction: tooltip on hover ────────────────────────────────────────────
