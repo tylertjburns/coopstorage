@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>CoopStorage Visualizer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0d1117; color: #c9d1d9; font-family: monospace; overflow: hidden; }
+
+    #canvas { display: block; cursor: grab; }
+    #canvas.dragging { cursor: grabbing; }
+
+    #hud {
+      position: fixed; top: 12px; left: 12px;
+      display: flex; gap: 8px; align-items: center; pointer-events: all;
+    }
+    .btn {
+      background: #21262d; border: 1px solid #30363d; color: #c9d1d9;
+      padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px;
+      font-family: monospace; transition: background 0.1s;
+    }
+    .btn:hover { background: #30363d; }
+    .btn.active { background: #1f6feb; border-color: #388bfd; }
+
+    #hint { font-size: 11px; color: #484f58; margin-left: 6px; }
+
+    #status {
+      position: fixed; bottom: 12px; left: 12px;
+      font-size: 11px; color: #8b949e;
+    }
+
+    #tooltip {
+      position: fixed; display: none;
+      background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+      padding: 10px 14px; font-size: 11px; pointer-events: none;
+      max-width: 300px; line-height: 1.7; z-index: 10;
+    }
+    #tooltip strong { color: #e6edf3; }
+    #tooltip em { color: #58a6ff; font-style: normal; }
+  </style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="hud">
+  <button class="btn active" id="btn-iso">Isometric</button>
+  <button class="btn"        id="btn-2d">Top-down</button>
+  <button class="btn"        id="btn-fit">Fit view</button>
+  <span id="hint">Scroll to zoom · Drag to pan · Hover for detail</span>
+</div>
+
+<div id="status">Connecting…</div>
+<div id="tooltip"></div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+// locations: id → { id, coords:[x,y,z], meta:{dims,channel_processor,capacity,...},
+//                   slots:[id|null,...], containers:{id→{id,uom,contents}} }
+const locations  = new Map();
+const containers = new Map();   // flat container registry
+
+// ─── Canvas setup ─────────────────────────────────────────────────────────────
+const canvas  = document.getElementById('canvas');
+const ctx     = canvas.getContext('2d');
+const statusEl  = document.getElementById('status');
+const tooltipEl = document.getElementById('tooltip');
+let W = 0, H = 0;
+let renderQueued = false;
+
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  requestRender();
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── Viewport ─────────────────────────────────────────────────────────────────
+let panX = W / 2, panY = H / 2, scale = 1;
+let isIso = true;
+
+// Project a world point to canvas pixels.
+function project(wx, wy, wz) {
+  let rx, ry;
+  if (isIso) {
+    rx = (wx - wy) * 0.866;
+    ry = (wx + wy) * 0.5 - wz;
+  } else {
+    rx = wx;
+    ry = wy;
+  }
+  return [rx * scale + panX, ry * scale + panY];
+}
+
+// Project all locations without pan/scale (for bounding box fitting).
+function projectRaw(wx, wy, wz) {
+  if (isIso) return [(wx - wy) * 0.866, (wx + wy) * 0.5 - wz];
+  return [wx, wy];
+}
+
+function fitView() {
+  if (locations.size === 0) return;
+  const pts = [];
+  for (const loc of locations.values()) {
+    pts.push(projectRaw(...loc.coords));
+  }
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const bw = maxX - minX || 1, bh = maxY - minY || 1;
+  const pad = 80;
+  scale = Math.min((W - pad * 2) / bw, (H - pad * 2) / bh, 200);
+  scale = Math.max(scale, 0.01);
+  panX  = W / 2 - ((minX + maxX) / 2) * scale;
+  panY  = H / 2 - ((minY + maxY) / 2) * scale;
+  requestRender();
+}
+
+// ─── LOD thresholds (pixels per world unit) ───────────────────────────────────
+// < LOD_MID  → dot
+// < LOD_CLOSE → labeled rect
+// >= LOD_CLOSE → slot detail
+const LOD_MID   = 3;
+const LOD_CLOSE = 18;
+
+// ─── Rendering ────────────────────────────────────────────────────────────────
+function requestRender() {
+  if (!renderQueued) {
+    renderQueued = true;
+    requestAnimationFrame(() => { renderQueued = false; render(); });
+  }
+}
+
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, W, H);
+
+  for (const loc of locations.values()) {
+    const [sx, sy] = project(...loc.coords);
+
+    // Viewport cull with generous margin
+    if (sx < -300 || sx > W + 300 || sy < -300 || sy > H + 300) continue;
+
+    const occupied = loc.slots.some(s => s !== null);
+
+    if (scale < LOD_MID) {
+      drawDot(sx, sy, occupied);
+    } else if (scale < LOD_CLOSE) {
+      drawRect(loc, sx, sy, occupied);
+    } else {
+      drawDetail(loc, sx, sy);
+    }
+  }
+}
+
+function drawDot(sx, sy, occupied) {
+  const r = Math.max(1.5, scale * 0.6);
+  ctx.beginPath();
+  ctx.arc(sx, sy, r, 0, Math.PI * 2);
+  ctx.fillStyle = occupied ? '#238636' : '#21262d';
+  ctx.fill();
+  if (occupied) {
+    ctx.strokeStyle = '#2ea043';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+  }
+}
+
+function drawRect(loc, sx, sy, occupied) {
+  const factor = Math.min(scale / LOD_MID, 3);
+  const w = 36 * factor, h = 20 * factor;
+  const x0 = sx - w / 2, y0 = sy - h / 2;
+
+  ctx.fillStyle   = occupied ? '#0d2a0d' : '#161b22';
+  ctx.strokeStyle = occupied ? '#238636' : '#30363d';
+  ctx.lineWidth   = 1;
+  ctx.fillRect(x0, y0, w, h);
+  ctx.strokeRect(x0, y0, w, h);
+
+  if (scale > 5) {
+    ctx.fillStyle    = '#8b949e';
+    ctx.font         = `${Math.min(10, w * 0.22)}px monospace`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(loc.id).slice(0, 10), sx, sy);
+  }
+}
+
+function drawDetail(loc, sx, sy) {
+  const nSlots  = loc.slots.length;
+  const slotW   = 20, slotH = 20, gap = 3;
+  const padH    = 12, padV = 20;
+  const totalW  = nSlots * (slotW + gap) - gap + padH * 2;
+  const totalH  = slotH + padV * 2;
+  const x0 = sx - totalW / 2, y0 = sy - totalH / 2;
+
+  // Background card
+  ctx.fillStyle   = '#161b22';
+  ctx.strokeStyle = '#30363d';
+  ctx.lineWidth   = 1;
+  ctx.fillRect(x0, y0, totalW, totalH);
+  ctx.strokeRect(x0, y0, totalW, totalH);
+
+  // Location ID (top-left)
+  ctx.fillStyle    = '#8b949e';
+  ctx.font         = '9px monospace';
+  ctx.textAlign    = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(String(loc.id).slice(0, 14), x0 + 4, y0 + 3);
+
+  // Channel processor badge (top-right)
+  const proc = (loc.meta.channel_processor || '')
+    .replace('ChannelProcessor', '')
+    .replace('Flow', '·');
+  ctx.fillStyle = '#388bfd';
+  ctx.textAlign = 'right';
+  ctx.fillText(proc, x0 + totalW - 4, y0 + 3);
+
+  // Capacity used / total (bottom-right)
+  const used = loc.slots.filter(s => s !== null).length;
+  ctx.fillStyle = used > 0 ? '#3fb950' : '#484f58';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(`${used}/${nSlots}`, x0 + totalW - 4, y0 + totalH - 3);
+
+  // Slot boxes
+  for (let i = 0; i < nSlots; i++) {
+    const cid  = loc.slots[i];
+    const slotX = x0 + padH + i * (slotW + gap);
+    const slotY = y0 + padV;
+
+    ctx.fillStyle   = cid ? '#0d2a0d' : '#0d1117';
+    ctx.strokeStyle = cid ? '#238636' : '#30363d';
+    ctx.lineWidth   = 1;
+    ctx.fillRect(slotX, slotY, slotW, slotH);
+    ctx.strokeRect(slotX, slotY, slotW, slotH);
+
+    if (cid) {
+      ctx.fillStyle    = '#7ee787';
+      ctx.font         = '7px monospace';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(cid).slice(0, 5), slotX + slotW / 2, slotY + slotH / 2);
+    }
+  }
+}
+
+// ─── Interaction: pan & zoom ───────────────────────────────────────────────────
+let dragging = false, lastMX = 0, lastMY = 0;
+
+canvas.addEventListener('mousedown', e => {
+  dragging = true;
+  lastMX = e.clientX; lastMY = e.clientY;
+  canvas.classList.add('dragging');
+});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  panX += e.clientX - lastMX;
+  panY += e.clientY - lastMY;
+  lastMX = e.clientX; lastMY = e.clientY;
+  requestRender();
+});
+window.addEventListener('mouseup', () => {
+  dragging = false;
+  canvas.classList.remove('dragging');
+});
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY > 0 ? 0.88 : 1 / 0.88;
+  panX = e.clientX - (e.clientX - panX) * factor;
+  panY = e.clientY - (e.clientY - panY) * factor;
+  scale *= factor;
+  requestRender();
+}, { passive: false });
+
+// ─── Interaction: tooltip on hover ────────────────────────────────────────────
+canvas.addEventListener('mousemove', e => {
+  if (dragging) { tooltipEl.style.display = 'none'; return; }
+  const hit = hitTest(e.clientX, e.clientY);
+  if (!hit) { tooltipEl.style.display = 'none'; return; }
+
+  const used = hit.slots.filter(s => s !== null).length;
+  let html = `<strong>${hit.id}</strong><br>`;
+  html += `<em>coords</em> [${hit.coords.map(v => v.toFixed(1)).join(', ')}]<br>`;
+  html += `<em>processor</em> ${hit.meta.channel_processor}<br>`;
+  html += `<em>capacity</em> ${used} / ${hit.slots.length}<br>`;
+
+  const cEntries = Object.entries(hit.containers);
+  if (cEntries.length > 0) {
+    html += `<br><em>containers</em><br>`;
+    for (const [cid, c] of cEntries) {
+      const label = c.contents.length > 0
+        ? c.contents.map(cc => `${cc.qty}×${cc.uom} ${cc.resource}`).join(', ')
+        : '(empty)';
+      html += `&nbsp;${String(cid).slice(0, 10)}… ${label}<br>`;
+    }
+  }
+
+  tooltipEl.innerHTML = html;
+  tooltipEl.style.display = 'block';
+  tooltipEl.style.left = (e.clientX + 14) + 'px';
+  tooltipEl.style.top  = (e.clientY + 14) + 'px';
+});
+canvas.addEventListener('mouseleave', () => { tooltipEl.style.display = 'none'; });
+
+function hitTest(mx, my) {
+  // Iterate in reverse so topmost-rendered location wins
+  const locs = [...locations.values()].reverse();
+  for (const loc of locs) {
+    const [sx, sy] = project(...loc.coords);
+    const threshold = scale < LOD_MID ? 8 : scale < LOD_CLOSE ? 28 : 60;
+    if (Math.abs(mx - sx) < threshold && Math.abs(my - sy) < threshold) return loc;
+  }
+  return null;
+}
+
+// ─── View toggle ──────────────────────────────────────────────────────────────
+document.getElementById('btn-iso').addEventListener('click', () => {
+  isIso = true;
+  document.getElementById('btn-iso').classList.add('active');
+  document.getElementById('btn-2d').classList.remove('active');
+  fitView();
+});
+document.getElementById('btn-2d').addEventListener('click', () => {
+  isIso = false;
+  document.getElementById('btn-2d').classList.add('active');
+  document.getElementById('btn-iso').classList.remove('active');
+  fitView();
+});
+document.getElementById('btn-fit').addEventListener('click', fitView);
+
+// ─── SSE event application ────────────────────────────────────────────────────
+function applyEvent(msg) {
+  const { type, payload } = msg;
+  switch (type) {
+    case 'location_registered': {
+      locations.set(payload.id, payload);
+      for (const [cid, c] of Object.entries(payload.containers || {})) {
+        containers.set(cid, c);
+      }
+      break;
+    }
+    case 'container_registered': {
+      containers.set(payload.id, payload);
+      break;
+    }
+    case 'container_moved': {
+      const { container_id, from_loc_id, to_loc_id, from_slots, to_slots } = payload;
+      if (from_loc_id && locations.has(from_loc_id)) {
+        const loc = locations.get(from_loc_id);
+        loc.slots = from_slots;
+        delete loc.containers[container_id];
+      }
+      if (to_loc_id && locations.has(to_loc_id)) {
+        const loc = locations.get(to_loc_id);
+        loc.slots = to_slots;
+        const c = containers.get(container_id);
+        if (c) loc.containers[container_id] = c;
+      }
+      break;
+    }
+    case 'content_changed': {
+      const { container_id, loc_id, contents } = payload;
+      if (containers.has(container_id)) {
+        containers.get(container_id).contents = contents;
+      }
+      if (loc_id && locations.has(loc_id)) {
+        const c = locations.get(loc_id).containers[container_id];
+        if (c) c.contents = contents;
+      }
+      break;
+    }
+    case 'container_removed': {
+      containers.delete(payload.id);
+      for (const loc of locations.values()) {
+        delete loc.containers[payload.id];
+      }
+      break;
+    }
+  }
+  requestRender();
+}
+
+// ─── Data loading & SSE connection ────────────────────────────────────────────
+async function loadSnapshot() {
+  statusEl.textContent = 'Loading snapshot…';
+  const res = await fetch('/snapshot');
+  if (!res.ok) throw new Error(`Snapshot HTTP ${res.status}`);
+  const data = await res.json();
+  for (const [id, loc] of Object.entries(data.locations)) {
+    locations.set(id, loc);
+    for (const [cid, c] of Object.entries(loc.containers)) {
+      containers.set(cid, c);
+    }
+  }
+  statusEl.textContent = `${locations.size} locations loaded`;
+  fitView();
+}
+
+function connectSSE(subscriberId) {
+  const es = new EventSource(`/events/${subscriberId}`);
+
+  es.addEventListener('message', e => {
+    applyEvent(JSON.parse(e.data));
+    statusEl.textContent = `${locations.size} locations · live`;
+  });
+
+  es.addEventListener('open', () => {
+    statusEl.textContent = `${locations.size} locations · live`;
+  });
+
+  es.addEventListener('error', () => {
+    // Close current stream and re-run full boot sequence.
+    // Handles server restarts, subscriber eviction, and transient errors.
+    es.close();
+    statusEl.textContent = 'Disconnected — reconnecting…';
+    setTimeout(boot, 2000);
+  });
+}
+
+async function boot() {
+  const MAX_ATTEMPTS = 30;
+  const RETRY_BASE_MS = 500;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      statusEl.textContent = attempt === 1
+        ? 'Connecting…'
+        : `Server not ready — retrying… (${attempt}/${MAX_ATTEMPTS})`;
+
+      // 1. Obtain subscriber_id before loading snapshot so no events are missed
+      const subRes = await fetch('/subscribe', { method: 'POST' });
+      if (!subRes.ok) throw new Error(`Subscribe HTTP ${subRes.status}`);
+      const { subscriber_id } = await subRes.json();
+
+      // 2. Load current state
+      await loadSnapshot();
+
+      // 3. Open live stream — buffered events from step 1→2 window arrive first
+      connectSSE(subscriber_id);
+
+      // 4. Clean up on page unload
+      window.addEventListener('beforeunload', () => {
+        navigator.sendBeacon(`/unsubscribe/${subscriber_id}`);
+      });
+
+      return;  // success — exit retry loop
+
+    } catch (err) {
+      if (attempt >= MAX_ATTEMPTS) {
+        statusEl.textContent = `Could not connect after ${MAX_ATTEMPTS} attempts: ${err.message}`;
+        console.error(err);
+        return;
+      }
+      const delayMs = Math.min(RETRY_BASE_MS * attempt, 5000);
+      statusEl.textContent = `Server not ready — retrying in ${(delayMs / 1000).toFixed(1)}s…`;
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

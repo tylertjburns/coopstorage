@@ -47,6 +47,10 @@ class Location:
         return self._meta
 
     @property
+    def Coords(self) -> vec.FloatVec:
+        return self._coords
+
+    @property
     def ContainerIds(self) -> List[UniqueIdentifier]:
         return self._channel.StoredIds
 

@@ -17,9 +17,18 @@ import cooptools.common as comm
 from coopstorage.storage.loc_load import data as data
 from cooptools.qualifiers import PatternMatchQualifier
 
+from pubsub import pub
+from coopstorage.enums import StorageTopic
+
 logger = logging.getLogger(__name__)
 
 RESERVATION_KEY = '006ddd91-73a5-4075-b49b-baa3077d5b4a'
+
+
+def _slots_for_loc(loc) -> list:
+    """Return a list of container-id strings (or None) for every slot in loc's channel."""
+    pos = loc.ContainerPositions
+    return [str(pos[i]) if pos.get(i) is not None else None for i in range(loc.Capacity)]
 
 class Storage:
     def __init__(self,
@@ -68,6 +77,19 @@ class Storage:
         with self._lock:
             if locs is not None:
                 self._data_store.LocationsData.add(locs)
+                for loc in locs:
+                    pub.sendMessage(StorageTopic.LOCATION_REGISTERED.value, payload={
+                        'id': str(loc.Id),
+                        'coords': list(loc.Coords),
+                        'meta': {
+                            'dims': list(loc.Meta.dims),
+                            'channel_processor': type(loc.Meta.channel_processor).__name__,
+                            'capacity': loc.Capacity,
+                            'delete_on_receive': loc.Meta.delete_on_receive,
+                        },
+                        'slots': _slots_for_loc(loc),
+                        'containers': {}
+                    })
         return self
 
     def get_locs(self,
@@ -82,6 +104,15 @@ class Storage:
         with self._lock:
             if containers is not None:
                 self._data_store.ContainersData.add(containers)
+                for c in containers:
+                    pub.sendMessage(StorageTopic.CONTAINER_REGISTERED.value, payload={
+                        'id': str(c.id),
+                        'uom': c.uom.name,
+                        'contents': [
+                            {'resource': cc.resource.name, 'uom': cc.uom.name, 'qty': cc.qty}
+                            for cc in c.contents
+                        ]
+                    })
         return self
 
     def get_containers(self,
@@ -102,6 +133,14 @@ class Storage:
             container = self._data_store.ContainersData.get(ids=[container_id])[container_id]
             updated = csm.add_content_to_container(container, contents)
             self._data_store.ContainersData.add_or_update([updated])
+            pub.sendMessage(StorageTopic.CONTENT_CHANGED.value, payload={
+                'container_id': str(container_id),
+                'loc_id': str(loc_id),
+                'contents': [
+                    {'resource': cc.resource.name, 'uom': cc.uom.name, 'qty': cc.qty}
+                    for cc in updated.contents
+                ]
+            })
 
     def remove_content_from_container_at_location(self,
                                                   loc_id: UniqueIdentifier,
@@ -116,6 +155,14 @@ class Storage:
             container = self._data_store.ContainersData.get(ids=[container_id])[container_id]
             updated = csm.remove_content_from_container(container, content)
             self._data_store.ContainersData.add_or_update([updated])
+            pub.sendMessage(StorageTopic.CONTENT_CHANGED.value, payload={
+                'container_id': str(container_id),
+                'loc_id': str(loc_id),
+                'contents': [
+                    {'resource': cc.resource.name, 'uom': cc.uom.name, 'qty': cc.qty}
+                    for cc in updated.contents
+                ]
+            })
 
 
     def filter(self,
@@ -223,6 +270,21 @@ class Storage:
 
         logger.info(f"Container {transfer_request.container.id} transferred{source_txt}{dest_txt}")
 
+        payload = {
+            'container_id': str(transfer_request.container.id),
+            'from_loc_id': str(transfer_request.source_loc.Id) if transfer_request.source_loc else None,
+            'to_loc_id':   str(transfer_request.dest_loc.Id)   if transfer_request.dest_loc   else None,
+        }
+        if transfer_request.source_loc:
+            src = self._data_store.LocationsData.get(
+                ids=[transfer_request.source_loc.get_id()])[transfer_request.source_loc.get_id()]
+            payload['from_slots'] = _slots_for_loc(src)
+        if transfer_request.dest_loc:
+            dst = self._data_store.LocationsData.get(
+                ids=[transfer_request.dest_loc.get_id()])[transfer_request.dest_loc.get_id()]
+            payload['to_slots'] = _slots_for_loc(dst)
+        pub.sendMessage(StorageTopic.CONTAINER_MOVED.value, payload=payload)
+
     def handle_transfer_requests(self, transfer_request_criteria: Iterable[TransferRequestCriteria]):
         with self._lock:
             for criteria in transfer_request_criteria:
@@ -238,6 +300,8 @@ class Storage:
                     dest_deletes = request.dest_loc is not None and request.dest_loc.Meta.delete_on_receive
                     if request.criteria.delete_container_on_transfer or dest_deletes:
                         self._data_store.ContainersData.remove(containers=[request.container])
+                        pub.sendMessage(StorageTopic.CONTAINER_REMOVED.value,
+                                        payload={'id': str(request.container.id)})
                 else:
                     logger.error(f"{pprint.pformat(request)}")
                     raise NotImplementedError()

@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 import random
 import time
 import unittest
+from typing import Callable, Optional
 
 import coopstorage.storage.loc_load.channel_processors as cps
 import coopstorage.storage.loc_load.dcs as dcs
@@ -111,6 +112,8 @@ LARGE = BenchmarkConfig(
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+_LOC_SPACING = 15   # world units between adjacent locations
+
 def _build_storage(cfg: BenchmarkConfig) -> Storage:
     locations = [
         Location(
@@ -120,22 +123,37 @@ def _build_storage(cfg: BenchmarkConfig) -> Storage:
                 channel_processor=cp(),
                 capacity=cfg.location_capacity,
             ),
-            coords=(0, 0, 0),
+            coords=(type_idx * _LOC_SPACING, i * _LOC_SPACING, 0),
         )
-        for cp in CHANNEL_PROCESSOR_TYPES
+        for type_idx, cp in enumerate(CHANNEL_PROCESSOR_TYPES)
         for i in range(cfg.locs_per_type)
     ]
     return Storage(locs=locations)
 
 # ── shared backbone ───────────────────────────────────────────────────────────
 
-def run_benchmark(test: unittest.TestCase, cfg: BenchmarkConfig) -> None:
+def run_benchmark(
+    test: unittest.TestCase,
+    cfg: BenchmarkConfig,
+    delay_provider: Optional[Callable[[], float]] = None,
+    storage: Optional[Storage] = None,
+) -> None:
     """
     Execute the full fill/drain workload defined by cfg, running invariant
     checks periodically and printing a benchmark report at the end.
     Failures are surfaced as test assertions on the provided TestCase.
+
+    Args:
+        delay_provider: Optional callable returning seconds to sleep after each
+                        individual transfer request. Use this to slow the benchmark
+                        to a pace visible in the visualizer (e.g. ``lambda: 0.02``).
+        storage:        Optional pre-built Storage instance. When provided the
+                        benchmark operates on it directly (useful for sharing a
+                        storage with an API server). If None a fresh storage is
+                        built from cfg.
     """
-    storage = _build_storage(cfg)
+    if storage is None:
+        storage = _build_storage(cfg)
 
     container_counter = 0
     total_added       = 0
@@ -209,14 +227,26 @@ def run_benchmark(test: unittest.TestCase, cfg: BenchmarkConfig) -> None:
 
     # ── main loop ─────────────────────────────────────────────────────────────
 
-    start = time.perf_counter()
+    start            = time.perf_counter()
+    last_status_time = start
+    STATUS_INTERVAL  = 5.0   # seconds between heartbeat prints
+
+    def _print_heartbeat(phase: str, running_total: int, running_concurrent: int):
+        elapsed = time.perf_counter() - start
+        rate    = running_total / elapsed if elapsed > 0 else 0
+        pct     = running_total / cfg.total_to_add * 100
+        print(f"  [heartbeat/{phase}]  "
+              f"{running_total:,}/{cfg.total_to_add:,} ({pct:.0f}%)"
+              f"  concurrent={running_concurrent:,}"
+              f"  elapsed={elapsed:.1f}s"
+              f"  rate={rate:,.0f}/s", flush=True)
 
     while total_added < cfg.total_to_add:
 
         # add a batch
         batch = min(cfg.add_batch_size, cfg.total_to_add - total_added)
         t0 = time.perf_counter()
-        for _ in range(batch):
+        for batch_idx in range(batch):
             cid = f"C{container_counter:07d}"
             container_counter += 1
             storage.handle_transfer_requests([
@@ -225,6 +255,13 @@ def run_benchmark(test: unittest.TestCase, cfg: BenchmarkConfig) -> None:
                     dest_loc_query_args=LocationQualifier(at_least_capacity=1),
                 )
             ])
+            if delay_provider is not None:
+                time.sleep(delay_provider())
+            now = time.perf_counter()
+            if now - last_status_time >= STATUS_INTERVAL:
+                _print_heartbeat('add', total_added + batch_idx + 1,
+                                 current_count + batch_idx + 1)
+                last_status_time = now
         current_count += batch
         total_added   += batch
         metrics['total_added'] += batch
@@ -257,6 +294,13 @@ def run_benchmark(test: unittest.TestCase, cfg: BenchmarkConfig) -> None:
                     )
                 ])
                 removed_this_drain += 1
+                if delay_provider is not None:
+                    time.sleep(delay_provider())
+                now = time.perf_counter()
+                if now - last_status_time >= STATUS_INTERVAL:
+                    _print_heartbeat('drain', total_added,
+                                     current_count - removed_this_drain)
+                    last_status_time = now
                 if removed_this_drain % cfg.effective_progress_every == 0:
                     elapsed      = time.perf_counter() - start
                     drain_rate   = removed_this_drain / (time.perf_counter() - t0)
