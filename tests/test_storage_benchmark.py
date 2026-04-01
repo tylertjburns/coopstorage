@@ -127,7 +127,7 @@ def _build_storage(cfg: BenchmarkConfig) -> Storage:
         Location(
             id=f"{cp.__name__}_{i:04d}",
             location_meta=dcs.LocationMeta(
-                dims=(10, 10, 10),
+                dims=(10, 10, 5),
                 channel_processor=cp(),
                 capacity=cfg.location_capacity,
             ),

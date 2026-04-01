@@ -283,7 +283,7 @@ class FIFOFlowBackwardChannelProcessor(IChannelProcessor):
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
-        return [0]
+        return [0] if any(x is None for x in state) else []
 
     @classmethod
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Hashable]:
@@ -319,7 +319,7 @@ class LIFOFlowBackwardChannelProcessor(IChannelProcessor):
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
-        return [0]
+        return [0] if any(x is None for x in state) else []
 
     @classmethod
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Hashable]:
@@ -332,11 +332,19 @@ class OMNIChannelProcessor(IChannelProcessor):
 
     @classmethod
     def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
-        return removable_positions(state=state, include_first=True, include_last=True)
+        idxs = [ii for ii, x in enumerate(state) if x is not None]
+        if len(idxs) == 0:
+            return []
+        
+        return list(set([min(idxs), max(idxs)]))
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
-        return [i for i, x in enumerate(state) if x is None]
+        idxs = [ii for ii, x in enumerate(state) if x is None]
+        if len(idxs) == 0:
+            return []
+        
+        return list(set([min(idxs), max(idxs)]))
 
     @classmethod
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Hashable]:
@@ -349,11 +357,19 @@ class OMNIFlowChannelProcessor(IChannelProcessor):
 
     @classmethod
     def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
-        return removable_positions(state=state, include_first=True, include_last=True)
+        idxs = [ii for ii, x in enumerate(state) if x is not None]
+        if len(idxs) == 0:
+            return []
+        
+        return list(set([min(idxs), max(idxs)]))
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
-        return [i for i, x in enumerate(state) if x is None]
+        idxs = [ii for ii, x in enumerate(state) if x is None]
+        if len(idxs) == 0:
+            return []
+        
+        return list(set([min(idxs), max(idxs)]))
 
     @classmethod
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Hashable]:
@@ -368,11 +384,19 @@ class OMNIFlowBackwardChannelProcessor(IChannelProcessor):
 
     @classmethod
     def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
-        return removable_positions(state=state, include_first=True, include_last=True)
+        idxs = [ii for ii, x in enumerate(state) if x is not None]
+        if len(idxs) == 0:
+            return []
+        
+        return list(set([min(idxs), max(idxs)]))
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
-        return [0]
+        idxs = [ii for ii, x in enumerate(state) if x is None]
+        if len(idxs) == 0:
+            return []
+        
+        return list(set([min(idxs), max(idxs)]))
 
     @classmethod
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Hashable]:

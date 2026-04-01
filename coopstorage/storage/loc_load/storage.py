@@ -30,6 +30,23 @@ def _slots_for_loc(loc) -> list:
     pos = loc.ContainerPositions
     return [str(pos[i]) if pos.get(i) is not None else None for i in range(loc.Capacity)]
 
+def _channel_access_for_loc(loc) -> dict:
+    """Return addable_slots and removable_slots index lists for loc's current state."""
+    state = [loc.ContainerPositions.get(i) for i in range(loc.Capacity)]
+    cp = loc.Meta.channel_processor
+    try:
+        removable = cp.get_removable_positions(state)
+    except StopIteration:
+        removable = []
+    try:
+        addable = cp.get_addable_positions(state)
+    except StopIteration:
+        addable = []
+    return {
+        'addable_slots':  addable,
+        'removable_slots': removable,
+    }
+
 class Storage:
     def __init__(self,
                  data_store: data.StorageDataStore = None,
@@ -91,6 +108,7 @@ class Storage:
                         'slot_dims':    list(loc.SlotDims),
                         'slot_offsets': [list(o) for o in loc.SlotOffsets],
                         'slots': _slots_for_loc(loc),
+                        **_channel_access_for_loc(loc),
                         'containers': {}
                     })
         return self
@@ -292,10 +310,12 @@ class Storage:
             src = self._data_store.LocationsData.get(
                 ids=[transfer_request.source_loc.get_id()])[transfer_request.source_loc.get_id()]
             payload['from_slots'] = _slots_for_loc(src)
+            payload.update({f'from_{k}': v for k, v in _channel_access_for_loc(src).items()})
         if transfer_request.dest_loc:
             dst = self._data_store.LocationsData.get(
                 ids=[transfer_request.dest_loc.get_id()])[transfer_request.dest_loc.get_id()]
             payload['to_slots'] = _slots_for_loc(dst)
+            payload.update({f'to_{k}': v for k, v in _channel_access_for_loc(dst).items()})
         pub.sendMessage(StorageTopic.CONTAINER_MOVED.value, payload=payload)
 
     def handle_transfer_requests(self, transfer_request_criteria: Iterable[TransferRequestCriteria]):

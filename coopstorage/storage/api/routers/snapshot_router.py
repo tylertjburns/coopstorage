@@ -29,6 +29,17 @@ def _serialize_location(loc: Location, all_containers: dict) -> dict:
                 ]
             }
 
+    cp = loc.Meta.channel_processor
+    state = [positions.get(i) for i in range(loc.Capacity)]
+    try:
+        addable_slots = cp.get_addable_positions(state)
+    except StopIteration:
+        addable_slots = []
+    try:
+        removable_slots = cp.get_removable_positions(state)
+    except StopIteration:
+        removable_slots = []
+
     return {
         'id': str(loc.Id),
         'coords': list(loc.Coords),
@@ -42,6 +53,8 @@ def _serialize_location(loc: Location, all_containers: dict) -> dict:
         'slot_dims':    list(loc.SlotDims),
         'slot_offsets': [list(o) for o in loc.SlotOffsets],
         'slots': slots,
+        'addable_slots':  addable_slots,
+        'removable_slots': removable_slots,
         'containers': loc_containers,
     }
 

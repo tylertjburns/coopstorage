@@ -180,8 +180,8 @@ function drawRect(loc, sx, sy, occupied) {
   ctx.strokeRect(x0, y0, w, h);
 
   if (scale > 5) {
-    ctx.fillStyle    = '#8b949e';
-    ctx.font         = `${Math.min(10, w * 0.22)}px monospace`;
+    ctx.fillStyle    = '#e6edf3';
+    ctx.font         = `${Math.min(14, w * 0.28)}px monospace`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(String(loc.id).slice(0, 10), sx, sy);
@@ -198,6 +198,58 @@ function _face(pts, fill, stroke) {
   ctx.closePath();
   ctx.fillStyle = fill;   ctx.fill();
   ctx.strokeStyle = stroke; ctx.lineWidth = 0.5; ctx.stroke();
+}
+
+// Draw text on an isometric face, shrinking font size to fit maxWidth.
+function _isoText(text, cx, cy, angle, maxWidth, maxSize, baseline, offsetY = 0) {
+  ctx.font = `${maxSize}px monospace`;
+  const measured = ctx.measureText(text).width;
+  const size = measured > maxWidth ? maxSize * (maxWidth / measured) : maxSize;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+  ctx.fillStyle = '#e6edf3';
+  ctx.font = `${size}px monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = baseline;
+  ctx.fillText(text, 0, offsetY);
+  ctx.restore();
+}
+
+// Draw a polygon outline only (no fill).
+function _outlinePolygon(pts, strokeColor, lineWidth = 1.5) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = lineWidth;
+  ctx.stroke();
+}
+
+// Fill a polygon with alternating-color diagonal hatch lines, clipped to the shape.
+function _crosshatchPolygon(pts, color1, color2, spacing = 5) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath();
+  ctx.clip();
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const h = y1 - y0;
+  ctx.lineWidth = 1;
+  let toggle = false;
+  for (let d = -(h); d < (x1 - x0) + h; d += spacing) {
+    ctx.strokeStyle = toggle ? color2 : color1;
+    ctx.beginPath();
+    ctx.moveTo(x0 + d, y0);
+    ctx.lineTo(x0 + d + h, y1);
+    ctx.stroke();
+    toggle = !toggle;
+  }
+  ctx.restore();
 }
 
 // Draw the three visible isometric faces of an axis-aligned box.
@@ -267,6 +319,9 @@ function _drawDetail3D(loc) {
     const cid = loc.slots[i];
     const occ = cid !== null;
 
+    const isAddable  = loc.addable_slots  && loc.addable_slots.includes(i);
+    const isRemovable = loc.removable_slots && loc.removable_slots.includes(i);
+
     if (isIso) {
       const p = (x, y, z) => project(x, y, z);
       const sx2 = wx+ox, sy2 = wy+oy, sz2 = wz+oz;
@@ -282,29 +337,60 @@ function _drawDetail3D(loc) {
              p(sx2+sdx, sy2+sdy, sz2+sdz), p(sx2+sdx, sy2,     sz2+sdz)],
             sideCol, stroke);
       // z+ top face
-      _face([p(sx2,     sy2+sdy, sz2+sdz), p(sx2+sdx, sy2+sdy, sz2+sdz),
-             p(sx2+sdx, sy2,     sz2+sdz), p(sx2,     sy2,     sz2+sdz)],
-            topCol, stroke);
+      const topPts = [p(sx2,     sy2+sdy, sz2+sdz), p(sx2+sdx, sy2+sdy, sz2+sdz),
+                      p(sx2+sdx, sy2,     sz2+sdz), p(sx2,     sy2,     sz2+sdz)];
+      _face(topPts, topCol, stroke);
+      // Channel-processor overlay on top face
+      if (isAddable && isRemovable) {
+        _crosshatchPolygon(topPts, '#58a6ff', '#bc8cff', 5);
+        _outlinePolygon(topPts, '#58a6ff');
+      } else if (isAddable) {
+        _outlinePolygon(topPts, '#58a6ff');
+      } else if (isRemovable) {
+        _outlinePolygon(topPts, '#bc8cff');
+      }
     } else {
+      const [bx0, by0] = project(wx+ox,     wy+oy,     0);
+      const [bx1, by1] = project(wx+ox+sdx, wy+oy+sdy, 0);
       drawTopBox(wx+ox, wy+oy, sdx, sdy,
         occ ? '#1a4a1a' : '#1c2128',
         occ ? '#3fb950' : '#444c56');
+      if (isAddable || isRemovable) {
+        const rectPts = [[bx0,by0],[bx1,by0],[bx1,by1],[bx0,by1]];
+        if (isAddable && isRemovable) {
+          _crosshatchPolygon(rectPts, '#58a6ff', '#bc8cff', 4);
+          _outlinePolygon(rectPts, '#58a6ff');
+        } else if (isAddable) {
+          _outlinePolygon(rectPts, '#58a6ff');
+        } else {
+          _outlinePolygon(rectPts, '#bc8cff');
+        }
+      }
     }
 
-    // Container label inside slot when zoomed close enough
-    if (cid && scale > 10) {
-      const [cx, cy] = project(wx+ox + sdx/2, wy+oy + sdy/2, wz+oz + sdz/2);
-      ctx.fillStyle = '#7ee787'; ctx.font = '7px monospace';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(String(cid).slice(0, 5), cx, cy);
+    if (isIso && scale > 10) {
+      const sx2 = wx+ox, sy2 = wy+oy, sz2 = wz+oz;
+      // Channel index — top of y+ (left) face, +30° to follow world +x axis
+      const [lix, liy] = project(sx2+sdx/2, sy2+sdy, sz2+sdz);
+      _isoText(String(i), lix, liy, Math.PI/6, sdx * scale * 0.85, 11, 'top', 11/2);
+      // Container name — center of z+ (top) face, -30° to follow world -y axis
+      if (cid) {
+        const [tx, ty] = project(sx2+sdx/2, sy2+sdy/2, sz2+sdz);
+        _isoText(String(cid), tx, ty, -Math.PI/6, sdy * scale * 0.85, 11, 'middle');
+      }
     }
   }
 
-  // Location ID label floated above the bounding cube
-  const [lx, ly] = project(wx + dx/2, wy + dy/2, wz + dz + 1);
-  ctx.fillStyle = '#484f58'; ctx.font = '8px monospace';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.fillText(String(loc.id).slice(0, 14), lx, ly);
+  // Location ID — top of x+ (right) face of bounding cube, -30° to follow world -y axis
+  if (isIso) {
+    const [lx, ly] = project(wx+dx, wy+dy/2, wz+dz);
+    _isoText(String(loc.id), lx, ly, -Math.PI/6, dy * scale * 0.85, 12, 'top', 12/2);
+  } else {
+    const [lx, ly] = project(wx + dx/2, wy + dy/2, wz + dz + 1);
+    ctx.fillStyle = '#e6edf3'; ctx.font = '12px monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText(String(loc.id), lx, ly);
+  }
 }
 
 // Fallback: flat screen-space card (used when slot_dims/slot_offsets are absent)
@@ -322,12 +408,12 @@ function _drawDetailCard(loc, sx, sy) {
   ctx.fillRect(x0, y0, totalW, totalH);
   ctx.strokeRect(x0, y0, totalW, totalH);
 
-  ctx.fillStyle    = '#8b949e'; ctx.font = '9px monospace';
+  ctx.fillStyle    = '#e6edf3'; ctx.font = '12px monospace';
   ctx.textAlign    = 'left';   ctx.textBaseline = 'top';
   ctx.fillText(String(loc.id).slice(0, 14), x0 + 4, y0 + 3);
 
   const used = loc.slots.filter(s => s !== null).length;
-  ctx.fillStyle = used > 0 ? '#3fb950' : '#484f58';
+  ctx.fillStyle = '#e6edf3';
   ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
   ctx.fillText(`${used}/${nSlots}`, x0 + totalW - 4, y0 + totalH - 3);
 
@@ -341,7 +427,7 @@ function _drawDetailCard(loc, sx, sy) {
     ctx.fillRect(slotX, slotY, slotW, slotH);
     ctx.strokeRect(slotX, slotY, slotW, slotH);
     if (cid) {
-      ctx.fillStyle = '#7ee787'; ctx.font = '7px monospace';
+      ctx.fillStyle = '#e6edf3'; ctx.font = '11px monospace';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(String(cid).slice(0, 5), slotX + slotW/2, slotY + slotH/2);
     }
@@ -494,15 +580,22 @@ function applyEvent(msg) {
       break;
     }
     case 'container_moved': {
-      const { container_id, from_loc_id, to_loc_id, from_slots, to_slots } = payload;
+      const { container_id, from_loc_id, to_loc_id,
+              from_slots, to_slots,
+              from_addable_slots, from_removable_slots,
+              to_addable_slots,   to_removable_slots } = payload;
       if (from_loc_id && locations.has(from_loc_id)) {
         const loc = locations.get(from_loc_id);
         loc.slots = from_slots;
+        if (from_addable_slots  !== undefined) loc.addable_slots  = from_addable_slots;
+        if (from_removable_slots !== undefined) loc.removable_slots = from_removable_slots;
         delete loc.containers[container_id];
       }
       if (to_loc_id && locations.has(to_loc_id)) {
         const loc = locations.get(to_loc_id);
         loc.slots = to_slots;
+        if (to_addable_slots  !== undefined) loc.addable_slots  = to_addable_slots;
+        if (to_removable_slots !== undefined) loc.removable_slots = to_removable_slots;
         const c = containers.get(container_id);
         if (c) loc.containers[container_id] = c;
       }
