@@ -47,6 +47,16 @@
     .legend-swatch {
       width: 14px; height: 14px; border-radius: 2px; flex-shrink: 0;
     }
+
+    #uom-legend {
+      position: fixed; bottom: 12px; right: 180px;
+      background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+      padding: 8px 12px; font-size: 11px; line-height: 2; pointer-events: none;
+      display: none;
+    }
+    #uom-legend-title { color: #8b949e; margin-bottom: 2px; font-size: 10px; }
+    .uom-legend-row { display: flex; align-items: center; gap: 6px; }
+    .uom-icon { font-size: 13px; width: 18px; text-align: center; }
   </style>
 </head>
 <body>
@@ -62,6 +72,7 @@
 
 <div id="status">Connecting…</div>
 <div id="tooltip"></div>
+<div id="uom-legend"><div id="uom-legend-title">UOM</div></div>
 
 <div id="legend">
   <div class="legend-row">
@@ -88,6 +99,37 @@
 //                   slots:[id|null,...], containers:{id→{id,uom,contents}} }
 const locations  = new Map();
 const containers = new Map();   // flat container registry
+
+// ─── UOM icon system ──────────────────────────────────────────────────────────
+// Pool of distinct unicode symbols assigned deterministically per UOM name.
+const UOM_ICON_POOL = ['■','▲','●','◆','★','▼','⬟','⬡','⬢','⬣','⬤','⬥','⬦',
+                       '⬧','⬨','⬩','⬪','⬫','⬬','⬭','⬮','⬯'];
+const uomIconMap = new Map();   // uom name → icon string
+
+function _uomIcon(uomName) {
+  if (!uomIconMap.has(uomName)) {
+    const icon = UOM_ICON_POOL[uomIconMap.size % UOM_ICON_POOL.length];
+    uomIconMap.set(uomName, icon);
+    _refreshUomLegend();
+  }
+  return uomIconMap.get(uomName);
+}
+
+function _refreshUomLegend() {
+  const el = document.getElementById('uom-legend');
+  if (uomIconMap.size === 0) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  // Rebuild rows after title
+  const title = document.getElementById('uom-legend-title');
+  el.innerHTML = '';
+  el.appendChild(title);
+  for (const [name, icon] of uomIconMap) {
+    const row = document.createElement('div');
+    row.className = 'uom-legend-row';
+    row.innerHTML = `<span class="uom-icon">${icon}</span><span>${name}</span>`;
+    el.appendChild(row);
+  }
+}
 
 // ─── Canvas setup ─────────────────────────────────────────────────────────────
 const canvas  = document.getElementById('canvas');
@@ -398,10 +440,12 @@ function _drawDetail3D(loc) {
       // Channel index — top of y+ (left) face, +30° to follow world +x axis
       const [lix, liy] = project(sx2+sdx/2, sy2+sdy, sz2+sdz);
       _isoText(String(i), lix, liy, Math.PI/6, sdx * scale * 0.85, 11, 'top', 11/2);
-      // Container name — center of z+ (top) face, -30° to follow world -y axis
+      // Container name + UOM icon — center of z+ (top) face, -30° to follow world -y axis
       if (cid) {
+        const c = loc.containers[cid] || containers.get(String(cid));
+        const icon = c ? _uomIcon(c.uom) : '';
         const [tx, ty] = project(sx2+sdx/2, sy2+sdy/2, sz2+sdz);
-        _isoText(String(cid), tx, ty, -Math.PI/6, sdy * scale * 0.85, 11, 'middle');
+        _isoText(icon + ' ' + String(cid), tx, ty, -Math.PI/6, sdy * scale * 0.85, 11, 'middle');
       }
     }
   }
@@ -450,9 +494,13 @@ function _drawDetailCard(loc, sx, sy) {
     ctx.fillRect(slotX, slotY, slotW, slotH);
     ctx.strokeRect(slotX, slotY, slotW, slotH);
     if (cid) {
+      const c = loc.containers[cid];
+      const icon = c ? _uomIcon(c.uom) : '';
       ctx.fillStyle = '#e6edf3'; ctx.font = '11px monospace';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(String(cid).slice(0, 5), slotX + slotW/2, slotY + slotH/2);
+      ctx.fillText(icon, slotX + slotW/2, slotY + slotH/2 - 4);
+      ctx.font = '9px monospace';
+      ctx.fillText(String(cid).slice(0, 4), slotX + slotW/2, slotY + slotH/2 + 5);
     }
   }
 }
@@ -600,13 +648,20 @@ function applyEvent(msg) {
     }
     case 'container_registered': {
       containers.set(payload.id, payload);
+      if (payload.uom) _uomIcon(payload.uom);
       break;
     }
     case 'container_moved': {
-      const { container_id, from_loc_id, to_loc_id,
+      const { container_id, container_uom, from_loc_id, to_loc_id,
               from_slots, to_slots,
               from_addable_slots, from_removable_slots,
               to_addable_slots,   to_removable_slots } = payload;
+      if (container_uom) {
+        _uomIcon(container_uom);
+        if (!containers.has(container_id)) {
+          containers.set(container_id, { id: container_id, uom: container_uom, contents: [] });
+        }
+      }
       if (from_loc_id && locations.has(from_loc_id)) {
         const loc = locations.get(from_loc_id);
         loc.slots = from_slots;
@@ -656,6 +711,7 @@ async function loadSnapshot() {
     locations.set(id, loc);
     for (const [cid, c] of Object.entries(loc.containers)) {
       containers.set(cid, c);
+      if (c.uom) _uomIcon(c.uom);
     }
   }
   statusEl.textContent = `${locations.size} locations loaded`;

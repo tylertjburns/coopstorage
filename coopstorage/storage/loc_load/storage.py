@@ -304,6 +304,7 @@ class Storage:
 
         payload = {
             'container_id': str(transfer_request.container.id),
+            'container_uom': transfer_request.container.uom.name,
             'from_loc_id': str(transfer_request.source_loc.Id) if transfer_request.source_loc else None,
             'to_loc_id':   str(transfer_request.dest_loc.Id)   if transfer_request.dest_loc   else None,
         }
