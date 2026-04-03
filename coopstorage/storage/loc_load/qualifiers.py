@@ -59,6 +59,7 @@ class LocationQualifier:
     has_all_containers:  Optional[Iterable[ContainerQualifier]] = None
     reserved:  Optional[bool] = None
     at_least_capacity:  Optional[int] = None
+    has_addable_position:  Optional[bool] = None
     is_occupied:  Optional[bool] = None
     has_content:  Optional[dcs.ContainerContent] = None
 
@@ -107,6 +108,12 @@ class LocationQualifier:
         # Disqualify on capacity
         if self.at_least_capacity is not None and loc.AvailableCapacity < self.at_least_capacity:
             return False
+
+        # Disqualify based on whether the channel processor has an accessible drop position
+        if self.has_addable_position is not None:
+            has_add = len(loc.get_addable_positions()) > 0
+            if has_add != self.has_addable_position:
+                return False
 
         # Disqualify on reserved
         if self.reserved is not None and loc.Reserved != self.reserved:

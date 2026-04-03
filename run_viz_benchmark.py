@@ -10,6 +10,7 @@ Usage
     python run_viz_benchmark.py --config medium         # MEDIUM benchmark
     python run_viz_benchmark.py --mode sim              # continuous randomized simulation
     python run_viz_benchmark.py --mode sim --config large
+    python run_viz_benchmark.py --mode showcase         # one of each processor type, lock-step
     python run_viz_benchmark.py --delay 0.05            # 50ms between ops
     python run_viz_benchmark.py --no-browser            # don't auto-open browser
     python run_viz_benchmark.py --port 1219             # custom port (default 1219)
@@ -43,6 +44,9 @@ from tests.test_storage_benchmark import (
     _build_storage,
     run_benchmark,
     run_simulation,
+    ShowcaseConfig,
+    _build_showcase_storage,
+    run_showcase_sim,
 )
 from coopstorage.storage.api.api_factory import storage_api_factory
 
@@ -97,7 +101,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run storage benchmark/sim with live visualizer")
     parser.add_argument("--config",     default="small",
                         choices=list(_CONFIGS), help="Config size (default: small)")
-    parser.add_argument("--mode",       default="benchmark", choices=["benchmark", "sim"],
+    parser.add_argument("--mode",       default="benchmark", choices=["benchmark", "sim", "showcase"],
                         help="'benchmark' runs a fixed workload; 'sim' runs continuously (default: benchmark)")
     parser.add_argument("--delay",      type=float, default=0.02,
                         help="Seconds to sleep between transfer ops (default: 0.02)")
@@ -130,14 +134,18 @@ def main():
         print(f"\n  CoopStorage Visualizer Simulation (continuous)")
         print(f"  config={args.config}  locations={sim_cfg.num_locations:,}"
               f"  delay={args.delay*1000:.0f}ms/op")
-        print(f"  visualizer → {viz_url}\n")
-    else:
+        print(f"  visualizer -> {viz_url}\n")
+    elif args.mode == "benchmark":
         cfg = _CONFIGS[args.config]
         storage = _build_storage(cfg)
         print(f"\n  CoopStorage Visualizer Benchmark")
         print(f"  config={args.config}  locations={cfg.num_locations:,}"
               f"  ops={cfg.total_to_add:,}  delay={args.delay*1000:.0f}ms/op")
-        print(f"  visualizer → {viz_url}\n")
+        print(f"  visualizer -> {viz_url}\n")
+    elif args.mode == "showcase":
+        print(f"\n  CoopStorage Visualizer Showcase (no workload, just explore the UI)")
+        print(f"  visualizer -> {viz_url}\n")
+        storage = _build_showcase_storage()
 
     # 1. Create and start the API server
     app = storage_api_factory(storage=storage)
@@ -165,7 +173,7 @@ def main():
                 delay_provider=lambda: args.delay,
                 stop_event=stop_event,
             )
-        else:
+        elif args.mode == "benchmark":
             print(f"  Running benchmark (delay={args.delay*1000:.0f}ms between ops)…\n")
             test_case = unittest.TestCase()
             test_case.maxDiff = None
@@ -175,10 +183,21 @@ def main():
                 storage=storage,
                 delay_provider=lambda: args.delay,
             )
+        elif args.mode == "showcase":
+            print(f"  Running showcase simulation (delay={args.delay*1000:.0f}ms between ops,"
+                  f" Ctrl+C to stop)…\n")
+            stop_event = threading.Event()
+            run_showcase_sim(
+                storage=storage,
+                cfg=ShowcaseConfig(),
+                delay_provider=lambda: args.delay,
+                stop_event=stop_event,
+            )
+
     except KeyboardInterrupt:
         print("\n  Interrupted.")
 
-    suffix = "Simulation stopped." if args.mode == "sim" else "Benchmark complete."
+    suffix = "Benchmark complete." if args.mode == "benchmark" else "Simulation stopped."
     print(f"\n  {suffix} Visualizer still running at {viz_url}")
     print("  Press Ctrl+C to exit.\n")
 

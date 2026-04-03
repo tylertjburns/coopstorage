@@ -36,14 +36,16 @@ def removable_positions(
     ret = []
 
     if include_first:
-        first_item = next(x for x in reversed(list(state)) if x is not None)
-        first_idx = list(state).index(first_item)
-        ret.append(first_idx)
+        first_item = next((x for x in reversed(list(state)) if x is not None), None)
+        if first_item is not None:
+            first_idx = list(state).index(first_item)
+            ret.append(first_idx)
 
     if include_last:
-        last_item = next(x for x in list(state) if x is not None)
-        last_idx = list(state).index(last_item)
-        ret.append(last_idx)
+        last_item = next((x for x in list(state) if x is not None), None)
+        if last_item is not None:
+            last_idx = list(state).index(last_item)
+            ret.append(last_idx)
 
     return ret
 
@@ -256,6 +258,15 @@ class IChannelProcessor(Protocol):
 
 
 class AllAvailableChannelProcessor(IChannelProcessor):
+    # Any slot may be added to or removed from at any time; no compaction.
+    #
+    #   State: [-, a, b, -, c]
+    #   removable → [1, 2, 4]   (all occupied slots)
+    #   addable   → [0, 3]      (all empty slots)
+    #
+    #   add 'd' → placed at slot 0 → [d, a, b, -, c]
+    #   remove 'b' → slot 2 cleared → [d, a, -, -, c]
+
     def __init__(self):
         super().__init__()
 
@@ -273,6 +284,15 @@ class AllAvailableChannelProcessor(IChannelProcessor):
 
 
 class AllAvailableFlowChannelProcessor(IChannelProcessor):
+    # Any slot may be added to or removed from; items compact to the right after each op.
+    #
+    #   add a, b, c to [-, -, -, -, -]:
+    #     add a → [a, -, -, -, -] → flow → [-, -, -, -, a]
+    #     add b → [b, -, -, -, a] → flow → [-, -, -, b, a]
+    #     add c → [c, -, -, b, a] → flow → [-, -, c, b, a]
+    #
+    #   remove 'b' (any slot) → [-, -, c, -, a] → flow → [-, -, -, c, a]
+
     def __init__(self):
         super().__init__()
 
@@ -290,6 +310,15 @@ class AllAvailableFlowChannelProcessor(IChannelProcessor):
 
 
 class AllAvailableFlowBackwardChannelProcessor(IChannelProcessor):
+    # Any slot may be added to or removed from; items compact to the left after each op.
+    #
+    #   add a, b, c to [-, -, -, -, -]:
+    #     add a → [a, -, -, -, -] → flow backward → [a, -, -, -, -]
+    #     add b → [a, b, -, -, -] → flow backward → [a, b, -, -, -]
+    #     add c → [a, b, c, -, -] → flow backward → [a, b, c, -, -]
+    #
+    #   remove 'b' (any slot) → [a, -, c, -, -] → flow backward → [a, c, -, -, -]
+
     def __init__(self):
         super().__init__()
 
@@ -307,6 +336,18 @@ class AllAvailableFlowBackwardChannelProcessor(IChannelProcessor):
 
 
 class FIFOFlowChannelProcessor(IChannelProcessor):
+    # Add at slot 0 (when empty); items flow right so oldest is always rightmost.
+    # Remove from rightmost occupied (oldest = first in).
+    #
+    #   add a, b, c to [-, -, -, -, -]:
+    #     add a at 0 → [a, -, -, -, -] → flow → [-, -, -, -, a]
+    #     add b at 0 → [b, -, -, -, a] → flow → [-, -, -, b, a]
+    #     add c at 0 → [c, -, -, b, a] → flow → [-, -, c, b, a]
+    #
+    #   removable → slot 4 (a, oldest)
+    #   remove a  → [-, -, c, b, -] → flow → [-, -, -, c, b]
+    #   removable → slot 4 (b, next oldest)
+
     def __init__(self):
         super().__init__()
 
@@ -324,6 +365,18 @@ class FIFOFlowChannelProcessor(IChannelProcessor):
 
 
 class FIFOFlowBackwardChannelProcessor(IChannelProcessor):
+    # Push at slot 0 (shifting items right); items flow left so oldest is always rightmost.
+    # Remove from rightmost occupied (oldest = first in).
+    # _allow_push=True: insert at 0 shifts all items right by one slot.
+    #
+    #   add a, b, c to [-, -, -, -, -]:
+    #     add a at 0 → [a, -, -, -, -] → flow backward → [a, -, -, -, -]
+    #     push b at 0 → [b, a, -, -, -] → flow backward → [b, a, -, -, -]
+    #     push c at 0 → [c, b, a, -, -] → flow backward → [c, b, a, -, -]
+    #
+    #   removable → slot 2 (a, oldest/rightmost)
+    #   remove a  → [c, b, -, -, -] → flow backward → [c, b, -, -, -]
+    #   removable → slot 1 (b, next oldest)
     _allow_push = True
 
     def __init__(self):
@@ -343,6 +396,18 @@ class FIFOFlowBackwardChannelProcessor(IChannelProcessor):
 
 
 class LIFOFlowChannelProcessor(IChannelProcessor):
+    # Add at slot 0 (when empty); items flow right so newest is always leftmost.
+    # Remove from leftmost occupied (newest = last in).
+    #
+    #   add a, b, c to [-, -, -, -, -]:
+    #     add a at 0 → [a, -, -, -, -] → flow → [-, -, -, -, a]
+    #     add b at 0 → [b, -, -, -, a] → flow → [-, -, -, b, a]
+    #     add c at 0 → [c, -, -, b, a] → flow → [-, -, c, b, a]
+    #
+    #   removable → slot 2 (c, newest/leftmost)
+    #   remove c  → [-, -, -, b, a] → flow → [-, -, -, b, a]
+    #   removable → slot 3 (b, next newest)
+
     def __init__(self):
         super().__init__()
 
@@ -360,6 +425,18 @@ class LIFOFlowChannelProcessor(IChannelProcessor):
 
 
 class LIFOFlowBackwardChannelProcessor(IChannelProcessor):
+    # Push at slot 0 (shifting items right); items flow left so newest is always leftmost.
+    # Remove from leftmost occupied (newest = last in).
+    # _allow_push=True: insert at 0 shifts all items right by one slot.
+    #
+    #   add a, b, c to [-, -, -, -, -]:
+    #     add a at 0 → [a, -, -, -, -] → flow backward → [a, -, -, -, -]
+    #     push b at 0 → [b, a, -, -, -] → flow backward → [b, a, -, -, -]
+    #     push c at 0 → [c, b, a, -, -] → flow backward → [c, b, a, -, -]
+    #
+    #   removable → slot 0 (c, newest/leftmost)
+    #   remove c  → [-, b, a, -, -] → flow backward → [b, a, -, -, -]
+    #   removable → slot 0 (b, next newest)
     _allow_push = True
 
     def __init__(self):
@@ -378,7 +455,202 @@ class LIFOFlowBackwardChannelProcessor(IChannelProcessor):
         return flow(state, backwards=True)
 
 
+class FIFONoFlowChannelProcessor(IChannelProcessor):
+    # No flow, no push. Items fill from deep (slot N-1) toward shallow (slot 0).
+    # Drop position: deepest None in the contiguous empty prefix from slot 0
+    #   (i.e. the slot immediately in front of the shallowest container).
+    # Remove from deepest occupied (slot N-1 side = first in = oldest).
+    #
+    #   add a, b, c to [-, -, -, -, -]:
+    #     scan prefix: all None → deepest = 4 → [-, -, -, -, a]
+    #     scan prefix: 0,1,2,3=None, 4=a → stop → deepest = 3 → [-, -, -, b, a]
+    #     scan prefix: 0,1,2=None, 3=b → stop → deepest = 2 → [-, -, c, b, a]
+    #
+    #   removable → slot 4 (a, deepest/oldest)
+    #   remove a  → [-, -, c, b, -]  (no flow, gap stays at slot 4)
+    #   scan prefix: 0,1=None, 2=c → stop → deepest = 1 → add d at 1 → [-, d, c, b, -]
+    #   removable → slot 3 (b, deepest occupied)  ✓ FIFO: b was added before c and d
+
+    def __init__(self):
+        super().__init__()
+
+    @classmethod
+    def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        return removable_positions(state=state, include_first=True)  # deepest occupied
+
+    @classmethod
+    def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        # Deepest None in the contiguous empty run from the shallow end (slot 0).
+        # Stops scanning as soon as a container is encountered.
+        deepest_open = None
+        for i, x in enumerate(state):
+            if x is None:
+                deepest_open = i
+            else:
+                break
+        return [deepest_open] if deepest_open is not None else []
+
+    @classmethod
+    def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Optional[Hashable]]:
+        return list(state)
+
+
+class LIFONoFlowChannelProcessor(IChannelProcessor):
+    # No flow, no push. Items fill from deep (slot N-1) toward shallow (slot 0).
+    # Drop position: deepest None in the contiguous empty prefix from slot 0
+    #   (i.e. the slot immediately in front of the shallowest container).
+    # Remove from shallowest occupied (slot 0 side = last in = newest).
+    #
+    #   add a, b, c to [-, -, -, -, -]:
+    #     scan prefix: all None → deepest = 4 → [-, -, -, -, a]
+    #     scan prefix: 0,1,2,3=None, 4=a → stop → deepest = 3 → [-, -, -, b, a]
+    #     scan prefix: 0,1,2=None, 3=b → stop → deepest = 2 → [-, -, c, b, a]
+    #
+    #   removable → slot 2 (c, shallowest/newest)
+    #   remove c  → [-, -, -, b, a]  (no flow, gap stays at slot 2)
+    #   scan prefix: 0,1,2=None, 3=b → stop → deepest = 2 → add d at 2 → [-, -, d, b, a]
+    #   removable → slot 2 (d, shallowest occupied)  ✓ LIFO: d was just added
+
+    def __init__(self):
+        super().__init__()
+
+    @classmethod
+    def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        return removable_positions(state=state, include_last=True)  # shallowest occupied
+
+    @classmethod
+    def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        # Deepest None in the contiguous empty run from the shallow end (slot 0).
+        # Stops scanning as soon as a container is encountered.
+        deepest_open = None
+        for i, x in enumerate(state):
+            if x is None:
+                deepest_open = i
+            else:
+                break
+        return [deepest_open] if deepest_open is not None else []
+
+    @classmethod
+    def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Optional[Hashable]]:
+        return list(state)
+
+
+class FIFONoFlowPushChannelProcessor(IChannelProcessor):
+    # Push at slot 0 (shifting items right); no flow after push.
+    # Remove from deepest occupied (rightmost = oldest = first in).
+    # _allow_push=True: insert at 0 shifts all items right by one slot.
+    #
+    #   add a, b, c to [-, -, -, -, -]:
+    #     add a at 0 (no push, slot empty) → [a, -, -, -, -]
+    #     push b at 0 → [b, a, -, -, -]   (a shifts right, no flow)
+    #     push c at 0 → [c, b, a, -, -]
+    #
+    #   removable → slot 2 (a, rightmost/oldest)
+    #   remove a  → [c, b, -, -, -]
+    #   push d at 0 → [d, c, b, -, -]
+    #   removable → slot 2 (b)  ✓ FIFO: b was added before c and d
+    _allow_push = True
+
+    def __init__(self):
+        super().__init__()
+
+    @classmethod
+    def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        return removable_positions(state=state, include_first=True)
+
+    @classmethod
+    def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        return [0] if any(x is None for x in state) else []
+
+    @classmethod
+    def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Optional[Hashable]]:
+        return list(state)
+
+
+class LIFONoFlowPushChannelProcessor(IChannelProcessor):
+    # Push at slot 0 (shifting items right); no flow after push.
+    # Remove from shallowest occupied (leftmost = newest = last in).
+    # _allow_push=True: insert at 0 shifts all items right by one slot.
+    #
+    #   add a, b, c to [-, -, -, -, -]:
+    #     add a at 0 (no push, slot empty) → [a, -, -, -, -]
+    #     push b at 0 → [b, a, -, -, -]
+    #     push c at 0 → [c, b, a, -, -]
+    #
+    #   removable → slot 0 (c, leftmost/newest)
+    #   remove c  → [-, b, a, -, -]
+    #   add d at 0 (slot 0 empty, no push) → [d, b, a, -, -]
+    #   removable → slot 0 (d)  ✓ LIFO: d was just added
+    _allow_push = True
+
+    def __init__(self):
+        super().__init__()
+
+    @classmethod
+    def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        return removable_positions(state=state, include_last=True)
+
+    @classmethod
+    def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
+        return [0] if any(x is None for x in state) else []
+
+    @classmethod
+    def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Optional[Hashable]]:
+        return list(state)
+
+
+def omni_addable_positions(state: List[Optional[Hashable]]) -> List[int]:
+    """Return the two droppable positions for any OMNI processor.
+
+    Left droppable:  max index with no container on the small-index side
+                     (rightmost None in the contiguous empty prefix from slot 0).
+    Right droppable: min index with no container on the big-index side
+                     (leftmost None in the contiguous empty suffix from slot N-1).
+
+    Example:  [-, -, a, -, b, -, -]
+      Left  → scan right: 0=None, 1=None, 2=a (stop) → left addable = 1
+      Right → scan left:  6=None, 5=None, 4=b (stop) → right addable = 5
+      result → [1, 5]
+    """
+    state = list(state)
+    positions = []
+
+    # Left addable: rightmost None before the first container (scanning left→right)
+    left_add = None
+    for i, x in enumerate(state):
+        if x is None:
+            left_add = i
+        else:
+            break
+    if left_add is not None:
+        positions.append(left_add)
+
+    # Right addable: leftmost None after the last container (scanning right→left)
+    right_add = None
+    for i in range(len(state) - 1, -1, -1):
+        if state[i] is None:
+            right_add = i
+        else:
+            break
+    if right_add is not None and right_add not in positions:
+        positions.append(right_add)
+
+    return positions
+
+
 class OMNIChannelProcessor(IChannelProcessor):
+    # Both ends are accessible simultaneously; no flow.
+    # Add to either the shallowest or deepest empty slot.
+    # Remove from either the shallowest or deepest occupied slot.
+    # Unblocking peels from whichever side has fewer items between it and the target.
+    #
+    #   State: [-, a, b, c, -]
+    #   removable → [1, 3]  (shallowest=a, deepest=c)
+    #   addable   → [0, 4]  (rightmost None in left prefix, leftmost None in right suffix)
+    #
+    #   unblock 'b' (idx 2): left=1 item (a), right=1 item (c) → tie → peel left → remove a
+    #     [-, -, b, c, -] → removable now includes slot 2 (b accessible)
+
     def __init__(self):
         super().__init__()
 
@@ -397,16 +669,11 @@ class OMNIChannelProcessor(IChannelProcessor):
         idxs = [ii for ii, x in enumerate(state) if x is not None]
         if len(idxs) == 0:
             return []
-        
         return list(set([min(idxs), max(idxs)]))
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
-        idxs = [ii for ii, x in enumerate(state) if x is None]
-        if len(idxs) == 0:
-            return []
-        
-        return list(set([min(idxs), max(idxs)]))
+        return omni_addable_positions(list(state))
 
     @classmethod
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Hashable]:
@@ -414,6 +681,18 @@ class OMNIChannelProcessor(IChannelProcessor):
 
 
 class OMNIFlowChannelProcessor(IChannelProcessor):
+    # Both ends accessible; items compact to the right after each op.
+    # Add/remove from either the shallowest or deepest slot (post-flow positions).
+    # Unblocking peels from the shorter side.
+    #
+    #   add a, b, c, d, e to [-, -, -, -, -]:
+    #     each add → flow → [a, b, c, d, e]  (fully packed right)
+    #   removable → [0, 4]  (both ends: a and e)
+    #
+    #   remove 'a' → [-, b, c, d, e] → flow → [b, c, d, e, -]  wait, flow packs RIGHT:
+    #     [-, b, c, d, e] → flow → [-, b, c, d, e]  (already packed)
+    #   removable → [1, 4]  (b and e)
+
     def __init__(self):
         super().__init__()
 
@@ -431,16 +710,11 @@ class OMNIFlowChannelProcessor(IChannelProcessor):
         idxs = [ii for ii, x in enumerate(state) if x is not None]
         if len(idxs) == 0:
             return []
-        
         return list(set([min(idxs), max(idxs)]))
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
-        idxs = [ii for ii, x in enumerate(state) if x is None]
-        if len(idxs) == 0:
-            return []
-        
-        return list(set([min(idxs), max(idxs)]))
+        return omni_addable_positions(list(state))
 
     @classmethod
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Hashable]:
@@ -448,6 +722,15 @@ class OMNIFlowChannelProcessor(IChannelProcessor):
 
 
 class OMNIFlowBackwardChannelProcessor(IChannelProcessor):
+    # Both ends accessible; items compact to the left after each op.
+    # _allow_push=True. Unblocking peels from the shorter side.
+    #
+    #   add a, b, c, d, e to [-, -, -, -, -]:
+    #     each add → flow backward → [a, b, c, d, e]  (packed left)
+    #   removable → [0, 4]  (both ends: a and e)
+    #
+    #   remove 'e' → [a, b, c, d, -] → flow backward → [a, b, c, d, -]
+    #   removable → [0, 3]  (a and d)
     _allow_push = True
 
     def __init__(self):
@@ -467,16 +750,11 @@ class OMNIFlowBackwardChannelProcessor(IChannelProcessor):
         idxs = [ii for ii, x in enumerate(state) if x is not None]
         if len(idxs) == 0:
             return []
-        
         return list(set([min(idxs), max(idxs)]))
 
     @classmethod
     def get_addable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
-        idxs = [ii for ii, x in enumerate(state) if x is None]
-        if len(idxs) == 0:
-            return []
-        
-        return list(set([min(idxs), max(idxs)]))
+        return omni_addable_positions(list(state))
 
     @classmethod
     def post_process(cls, state: Iterable[Optional[Hashable]]) -> List[Hashable]:
@@ -657,8 +935,12 @@ class ChannelProcessorType(CoopEnum):
     AllAvailableChannelProcessor = AllAvailableChannelProcessor()
     FIFOFlowBackwardChannelProcessor = FIFOFlowBackwardChannelProcessor()
     FIFOFlowChannelProcessor = FIFOFlowChannelProcessor()
+    FIFONoFlowChannelProcessor = FIFONoFlowChannelProcessor()
+    FIFONoFlowPushChannelProcessor = FIFONoFlowPushChannelProcessor()
     LIFOFlowBackwardChannelProcessor = LIFOFlowBackwardChannelProcessor()
     LIFOFlowChannelProcessor = LIFOFlowChannelProcessor()
+    LIFONoFlowChannelProcessor = LIFONoFlowChannelProcessor()
+    LIFONoFlowPushChannelProcessor = LIFONoFlowPushChannelProcessor()
     OMNIChannelProcessor = OMNIFlowChannelProcessor()
     OMNIFlowChannelProcessor = OMNIFlowChannelProcessor()
     OMNIFlowBackwardChannelProcessor = OMNIFlowBackwardChannelProcessor()

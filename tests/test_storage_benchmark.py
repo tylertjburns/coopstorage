@@ -45,8 +45,12 @@ CHANNEL_PROCESSOR_TYPES = [
     cps.AllAvailableFlowBackwardChannelProcessor,
     cps.FIFOFlowChannelProcessor,
     cps.FIFOFlowBackwardChannelProcessor,
+    cps.FIFONoFlowChannelProcessor,
+    cps.FIFONoFlowPushChannelProcessor,
     cps.LIFOFlowChannelProcessor,
     cps.LIFOFlowBackwardChannelProcessor,
+    cps.LIFONoFlowChannelProcessor,
+    cps.LIFONoFlowPushChannelProcessor,
     cps.OMNIChannelProcessor,
     cps.OMNIFlowChannelProcessor,
     cps.OMNIFlowBackwardChannelProcessor,
@@ -266,7 +270,7 @@ def run_benchmark(
             storage.handle_transfer_requests([
                 TransferRequestCriteria(
                     new_container=dcs.Container(id=cid),
-                    dest_loc_query_args=LocationQualifier(at_least_capacity=1),
+                    dest_loc_query_args=LocationQualifier(at_least_capacity=1, has_addable_position=True),
                 )
             ])
             if delay_provider is not None:
@@ -412,6 +416,151 @@ SIM_SMALL = SimulationConfig()
 SIM_LARGE = SimulationConfig(locs_per_type=10)
 
 
+# ── showcase simulation ────────────────────────────────────────────────────────
+
+@dataclass
+class ShowcaseConfig:
+    """One location per processor type, all operated in sync each iteration."""
+    location_capacity: int   = 5
+    min_fill_pct:      float = 0.20
+    max_fill_pct:      float = 0.80
+
+
+SHOWCASE = ShowcaseConfig()
+
+
+def _build_showcase_storage(cfg: ShowcaseConfig = None):
+    """Build a storage with exactly one location per channel processor type,
+    arranged in the smallest square grid that fits all types."""
+    import math
+    if cfg is None:
+        cfg = SHOWCASE
+    n = len(CHANNEL_PROCESSOR_TYPES)
+    cols = math.ceil(math.sqrt(n))
+    locations = []
+    for idx, cp_type in enumerate(CHANNEL_PROCESSOR_TYPES):
+        row = idx // cols
+        col = idx % cols
+        locations.append(Location(
+            id=cp_type.__name__,
+            location_meta=dcs.LocationMeta(
+                dims=(10, 10, 5),
+                channel_processor=cp_type(),
+                capacity=cfg.location_capacity,
+            ),
+            coords=(col * _LOC_SPACING, row * _LOC_SPACING, 0),
+        ))
+    return Storage(locs=locations)
+
+
+def run_showcase_sim(
+    storage: Storage,
+    cfg: ShowcaseConfig = None,
+    delay_provider: Optional[Callable[[], float]] = None,
+    stop_event: Optional[threading.Event] = None,
+) -> None:
+    """Showcase sim: each iteration either adds one container to every location
+    that can accept one, or removes one accessible container from every location
+    that has one.  All locations operate in lock-step so behaviour differences
+    between channel processor types are immediately visible.
+
+    Fill thresholds determine the add/remove decision:
+      - below min_fill_pct  → always add
+      - above max_fill_pct  → always remove
+      - in between          → random choice between add and remove
+    """
+    if cfg is None:
+        cfg = SHOWCASE
+    if stop_event is None:
+        stop_event = threading.Event()
+
+    container_counter = 0
+    total_ops         = 0
+    start             = time.perf_counter()
+    last_status       = start
+    STATUS_INTERVAL   = 5.0
+
+    def _new_cid() -> str:
+        nonlocal container_counter
+        cid = f"S{container_counter:08d}"
+        container_counter += 1
+        return cid
+
+    max_concurrent = sum(loc.Capacity for loc in storage.Locations.values())
+
+    while not stop_event.is_set():
+        count = len(storage.ContainerLocs)
+        fill  = count / max_concurrent if max_concurrent > 0 else 0
+
+        if fill < cfg.min_fill_pct:
+            op = 'add'
+        elif fill > cfg.max_fill_pct:
+            op = 'remove'
+        else:
+            op = random.choice(['add', 'remove'])
+
+        if op == 'add':
+            for loc in storage.Locations.values():
+                if not loc.get_addable_positions():
+                    continue
+                cid = _new_cid()
+                try:
+                    storage.handle_transfer_requests([
+                        TransferRequestCriteria(
+                            new_container=dcs.Container(id=cid),
+                            dest_loc_query_args=LocationQualifier(
+                                id_pattern=PatternMatchQualifier(
+                                    white_list_black_list_qualifier=WhiteBlackListQualifier(
+                                        white_list=[str(loc.Id)]
+                                    )
+                                ),
+                                has_addable_position=True,
+                            ),
+                        )
+                    ])
+                    logger.debug("showcase  add  loc=%s  container=%s", loc.Id, cid)
+                except Exception as e:
+                    logger.warning("showcase  add  loc=%s  error=%s: %s",
+                                   loc.Id, type(e).__name__, e)
+        else:
+            for loc in storage.Locations.values():
+                removable = loc.get_removable_positions()
+                if not removable:
+                    continue
+                container_id = loc.ContainerPositions.get(random.choice(removable))
+                if container_id is None:
+                    continue
+                try:
+                    storage.handle_transfer_requests([
+                        TransferRequestCriteria(
+                            container_query_args=ContainerQualifier(
+                                pattern=PatternMatchQualifier(id=container_id)
+                            ),
+                            delete_container_on_transfer=True,
+                        )
+                    ])
+                    logger.debug("showcase  remove  loc=%s  container=%s", loc.Id, container_id)
+                except Exception as e:
+                    logger.warning("showcase  remove  loc=%s  container=%s  error=%s: %s",
+                                   loc.Id, container_id, type(e).__name__, e)
+
+        total_ops += 1
+
+        if delay_provider is not None:
+            time.sleep(delay_provider())
+
+        now = time.perf_counter()
+        if now - last_status >= STATUS_INTERVAL:
+            elapsed = now - start
+            rate    = total_ops / elapsed if elapsed > 0 else 0
+            print(
+                f"  [showcase]  ops={total_ops:,}  containers={count:,}/{max_concurrent:,}"
+                f"  fill={fill:.0%}  elapsed={elapsed:.0f}s  rate={rate:,.0f}/s",
+                flush=True,
+            )
+            last_status = now
+
+
 def run_simulation(
     storage: 'Storage',
     cfg: SimulationConfig = None,
@@ -459,7 +608,7 @@ def run_simulation(
         storage.handle_transfer_requests(
             [TransferRequestCriteria(
                 new_container=dcs.Container(id=cid),
-                dest_loc_query_args=LocationQualifier(at_least_capacity=1),
+                dest_loc_query_args=LocationQualifier(at_least_capacity=1, has_addable_position=True),
             )],
             dest_loc_evaluator=evaluators.fewest_containers,
         )
@@ -498,6 +647,7 @@ def run_simulation(
                     ),
                     dest_loc_query_args=LocationQualifier(
                         at_least_capacity=1,
+                        has_addable_position=True,
                         id_pattern=PatternMatchQualifier(
                             white_list_black_list_qualifier=WhiteBlackListQualifier(
                                 black_list=[str(target_loc.Id)]
@@ -544,7 +694,7 @@ def run_simulation(
                     container_query_args=ContainerQualifier(
                         pattern=PatternMatchQualifier(id=c.id)
                     ),
-                    dest_loc_query_args=LocationQualifier(at_least_capacity=1),
+                    dest_loc_query_args=LocationQualifier(at_least_capacity=1, has_addable_position=True),
                 )],
                 dest_loc_evaluator=evaluators.fewest_containers,
             )
