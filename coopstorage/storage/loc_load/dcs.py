@@ -42,10 +42,18 @@ class ContainerContent(BaseIdentifiedDataClass):
 class Container(BaseIdentifiedDataClass):
     uom: UnitOfMeasure = field(default_factory=lambda: UnitOfMeasure(name='EA'))
     weight: float = None
-    contents: frozenset = field(default_factory=frozenset)        # frozenset[ContainerContent]
-    uom_capacities: frozenset = field(default_factory=frozenset)  # frozenset[UoMCapacity]
+    contents: frozenset[ContainerContent] = field(default_factory=frozenset)
+    uom_capacities: frozenset[UoMCapacity] = field(default_factory=frozenset)
     resource_qualifier: Optional[WhiteBlackListQualifier] = field(default=None, hash=False)
     uom_qualifier: Optional[WhiteBlackListQualifier] = field(default=None, hash=False)
+
+    @property
+    def ResourceTypes(self) -> Dict[Resource, float]:
+        ret = {}
+        for content in self.contents:
+            ret.setdefault(content.resource, 0)
+            ret[content.resource] += content.qty
+        return ret
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class LoadPosition(BaseIdentifiedDataClass):
@@ -62,6 +70,8 @@ class LocationMeta(BaseDataClass):
     capacity: int = 1
     channel_axis: int = 0          # axis along which slots are packed (0=X, 1=Y, 2=Z)
     delete_on_receive: bool = False
+    uom_qualifier: Optional[WhiteBlackListQualifier] = None
+    resource_type_qualifier: Optional[WhiteBlackListQualifier] = None
 
     def __post_init__(self):
         if type(self.channel_processor) == str:
