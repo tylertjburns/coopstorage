@@ -585,5 +585,119 @@ class TestStorageResolveSourceContainerDest(unittest.TestCase):
             ])
 
 
+class TestLocationQualifierUomQualifier(unittest.TestCase):
+    """Tests for uom_qualifier on LocationMeta — disqualifies containers whose UoM is not allowed."""
+
+    ALLOWED_UOM  = dcs.UnitOfMeasure(name='PALLET', dimensions=(1.0, 1.0, 1.0))
+    REJECTED_UOM = dcs.UnitOfMeasure(name='BOX',    dimensions=(1.0, 1.0, 1.0))
+
+    def _loc_with_uom_qualifier(self, allowed_names):
+        from cooptools.qualifiers import WhiteBlackListQualifier
+        return Location(
+            id='A',
+            location_meta=dcs.LocationMeta(
+                dims=(10.0, 10.0, 10.0),
+                channel_processor=cps.AllAvailableChannelProcessor(),
+                capacity=5,
+                uom_qualifier=WhiteBlackListQualifier(white_list=allowed_names),
+            ),
+            coords=(0, 0, 0),
+        )
+
+    def test_allowed_uom_qualifies(self):
+        loc = self._loc_with_uom_qualifier([self.ALLOWED_UOM])
+        c = dcs.Container(id='C1', uom=self.ALLOWED_UOM)
+        self.assertTrue(LocationQualifier().check_if_qualifies(loc, container=c))
+
+    def test_rejected_uom_disqualifies(self):
+        loc = self._loc_with_uom_qualifier([self.ALLOWED_UOM])
+        c = dcs.Container(id='C1', uom=self.REJECTED_UOM)
+        self.assertFalse(LocationQualifier().check_if_qualifies(loc, container=c))
+
+    def test_ignore_uom_qualifier_bypasses_check(self):
+        """ignore_uom_qualifier=True means even a rejected UoM passes."""
+        loc = self._loc_with_uom_qualifier([self.ALLOWED_UOM])
+        c = dcs.Container(id='C1', uom=self.REJECTED_UOM)
+        q = LocationQualifier(ignore_uom_qualifier=True)
+        self.assertTrue(q.check_if_qualifies(loc, container=c))
+
+    def test_no_container_skips_uom_check(self):
+        """Without a container argument, uom_qualifier is not evaluated."""
+        loc = self._loc_with_uom_qualifier([self.ALLOWED_UOM])
+        self.assertTrue(LocationQualifier().check_if_qualifies(loc, container=None))
+
+    def test_no_uom_qualifier_on_loc_always_passes(self):
+        """When LocationMeta has no uom_qualifier, any container UoM is accepted."""
+        loc = _loc()  # no uom_qualifier
+        c = dcs.Container(id='C1', uom=self.REJECTED_UOM)
+        self.assertTrue(LocationQualifier().check_if_qualifies(loc, container=c))
+
+
+class TestLocationQualifierResourceTypeQualifier(unittest.TestCase):
+    """Tests for resource_type_qualifier on LocationMeta — disqualifies containers whose
+    resource types are not all allowed by the location's whitelist."""
+
+    SKU_A = dcs.Resource(name='SKU_A')
+    SKU_B = dcs.Resource(name='SKU_B')
+    EACH  = dcs.UnitOfMeasure(name='EA')
+
+    def _loc_with_resource_qualifier(self, allowed_resources):
+        from cooptools.qualifiers import WhiteBlackListQualifier
+        return Location(
+            id='A',
+            location_meta=dcs.LocationMeta(
+                dims=(10.0, 10.0, 10.0),
+                channel_processor=cps.AllAvailableChannelProcessor(),
+                capacity=5,
+                resource_type_qualifier=WhiteBlackListQualifier(white_list=allowed_resources),
+            ),
+            coords=(0, 0, 0),
+        )
+
+    def _container_with_resources(self, cid, *resources):
+        contents = frozenset(
+            dcs.ContainerContent(resource=r, uom=self.EACH, qty=1.0)
+            for r in resources
+        )
+        return dcs.Container(id=cid, contents=contents)
+
+    def test_allowed_resource_qualifies(self):
+        loc = self._loc_with_resource_qualifier([self.SKU_A])
+        c = self._container_with_resources('C1', self.SKU_A)
+        self.assertTrue(LocationQualifier().check_if_qualifies(loc, container=c))
+
+    def test_rejected_resource_disqualifies(self):
+        loc = self._loc_with_resource_qualifier([self.SKU_A])
+        c = self._container_with_resources('C1', self.SKU_B)
+        self.assertFalse(LocationQualifier().check_if_qualifies(loc, container=c))
+
+    def test_mixed_resources_disqualifies_when_one_rejected(self):
+        """Container with both an allowed and a rejected resource type fails."""
+        loc = self._loc_with_resource_qualifier([self.SKU_A])
+        c = self._container_with_resources('C1', self.SKU_A, self.SKU_B)
+        self.assertFalse(LocationQualifier().check_if_qualifies(loc, container=c))
+
+    def test_empty_container_qualifies(self):
+        """A container with no contents has no resource types — nothing to reject."""
+        loc = self._loc_with_resource_qualifier([self.SKU_A])
+        c = dcs.Container(id='C1')  # no contents → ResourceTypes = {}
+        self.assertTrue(LocationQualifier().check_if_qualifies(loc, container=c))
+
+    def test_ignore_resource_type_qualifier_bypasses_check(self):
+        loc = self._loc_with_resource_qualifier([self.SKU_A])
+        c = self._container_with_resources('C1', self.SKU_B)
+        q = LocationQualifier(ignore_resource_type_qualifier=True)
+        self.assertTrue(q.check_if_qualifies(loc, container=c))
+
+    def test_no_container_skips_resource_type_check(self):
+        loc = self._loc_with_resource_qualifier([self.SKU_A])
+        self.assertTrue(LocationQualifier().check_if_qualifies(loc, container=None))
+
+    def test_no_resource_type_qualifier_on_loc_always_passes(self):
+        loc = _loc()  # no resource_type_qualifier
+        c = self._container_with_resources('C1', self.SKU_B)
+        self.assertTrue(LocationQualifier().check_if_qualifies(loc, container=c))
+
+
 if __name__ == "__main__":
     unittest.main()

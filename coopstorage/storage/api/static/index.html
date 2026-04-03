@@ -147,11 +147,9 @@ function fitView() {
 }
 
 // ─── LOD thresholds (pixels per world unit) ───────────────────────────────────
-// < LOD_MID  → dot
-// < LOD_CLOSE → labeled rect
-// >= LOD_CLOSE → slot detail
-const LOD_MID   = 1;
-const LOD_CLOSE = 5;
+// < LOD_DETAIL → dot
+// >= LOD_DETAIL → slot detail
+const LOD_DETAIL = 3;
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
 function requestRender() {
@@ -174,10 +172,8 @@ function render() {
 
     const occupied = loc.slots.some(s => s !== null);
 
-    if (scale < LOD_MID) {
+    if (scale < LOD_DETAIL) {
       drawDot(sx, sy, occupied);
-    } else if (scale < LOD_CLOSE) {
-      drawRect(loc, sx, sy, occupied);
     } else {
       drawDetail(loc, sx, sy);
     }
@@ -570,7 +566,7 @@ function hitTest(mx, my) {
   const locs = [...locations.values()].reverse();
   for (const loc of locs) {
     const [sx, sy] = project(...loc.coords);
-    const threshold = scale < LOD_MID ? 8 : scale < LOD_CLOSE ? 28 : 60;
+    const threshold = scale < LOD_DETAIL ? 8 : 60;
     if (Math.abs(mx - sx) < threshold && Math.abs(my - sy) < threshold) return loc;
   }
   return null;

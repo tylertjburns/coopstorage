@@ -3,7 +3,7 @@ import coopstorage.storage.loc_load.dcs as dcs
 from typing import Callable, Dict, Iterable, Optional
 from dataclasses import dataclass
 import cooptools.geometry_utils.vector_utils as vec
-from cooptools.qualifiers import PatternMatchQualifier
+from cooptools.qualifiers import PatternMatchQualifier, WhiteBlackListQualifier
 from cooptools.protocols import UniqueIdentifier
 
 # Callable that retrieves Container objects for a given set of IDs.
@@ -62,6 +62,9 @@ class LocationQualifier:
     has_addable_position:  Optional[bool] = None
     is_occupied:  Optional[bool] = None
     has_content:  Optional[dcs.ContainerContent] = None
+    min_slot_dims: Optional[vec.FloatVec] = None  # all slot dims must be >= this
+    ignore_uom_qualifier: bool = False  # if True, ignore the location's uom_qualifier (treat as if None)
+    ignore_resource_type_qualifier: bool = False  # if True, ignore the location's resource_type_qualifier (treat as None)
 
     def check_if_qualifies(self,
                            loc: Location,
@@ -139,4 +142,37 @@ class LocationQualifier:
             if total < self.has_content.qty:
                 return False
 
+        # Disqualify if any slot dims are smaller than the required minimum
+        if self.min_slot_dims is not None:
+            slot_dims = loc.SlotDims
+            if not _dims_within_min(slot_dims, self.min_slot_dims):
+                return False
+
+        # Disqualify if container's UoM doesn't satisfy the qualifier
+        if not self.ignore_uom_qualifier and loc.Meta.uom_qualifier is not None:
+            if container is not None and \
+                not loc.Meta.uom_qualifier.qualify([container.uom])[container.uom].result:
+                return False
+        
+        # Disqualify if container's resource types dont satisfy the qualifier
+        if not self.ignore_resource_type_qualifier and loc.Meta.resource_type_qualifier is not None:
+            if container is not None and \
+                not all(v.result for v in loc.Meta.resource_type_qualifier.qualify(list(container.ResourceTypes.keys())).values()):
+                return False
+        
         return True
+
+
+def get_destination_location_qualifier(
+        container: dcs.Container,
+        location_black_list: Iterable[UniqueIdentifier] = None) -> LocationQualifier:
+    """Example qualifier for determining whether a location is a valid destination for an add operation."""
+    return LocationQualifier(
+        has_addable_position=True,  # must have an accessible drop position
+        id_pattern=PatternMatchQualifier(
+            white_list_black_list_qualifier=WhiteBlackListQualifier(
+                black_list=location_black_list
+            )
+        ),
+        min_slot_dims=container.uom.dimensions,  # all slot dims must be >= container dims
+    )
