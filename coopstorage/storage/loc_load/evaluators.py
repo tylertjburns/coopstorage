@@ -11,3 +11,7 @@ from coopstorage.storage.loc_load.location import Location
 def fewest_containers(loc: Location) -> float:
     """Prefer locations with fewer containers, promoting an even spread across all locations."""
     return -len(loc.ContainerIds)
+
+def max_available_capacity_percentage(loc: Location) -> float:
+    """Prefer locations with more available capacity."""
+    return loc.AvailableCapacity / loc.Capacity if loc.Capacity > 0 else 0

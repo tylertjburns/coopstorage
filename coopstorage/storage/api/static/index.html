@@ -386,10 +386,8 @@ function _drawDetail3D(loc) {
     const [lx, ly] = project(wx+dx, wy+dy/2, wz+dz);
     _isoText(String(loc.id), lx, ly, -Math.PI/6, dy * scale * 0.85, 12, 'top', 12/2);
   } else {
-    const [lx, ly] = project(wx + dx/2, wy + dy/2, wz + dz + 1);
-    ctx.fillStyle = '#e6edf3'; ctx.font = '12px monospace';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(String(loc.id), lx, ly);
+    const [lx, ly] = project(wx + dx/2, wy + dy/2, 0);
+    _isoText(String(loc.id), lx, ly, 0, dx * scale * 0.85, 12, 'middle');
   }
 }
 
