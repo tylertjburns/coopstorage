@@ -154,51 +154,106 @@ class TestLocationQualifier(unittest.TestCase):
         return lambda ids: {i: container_map[i] for i in ids if i in container_map}
 
     def test_any_loads_qualifier_pass(self):
-        """Location qualifies if at least one container matches any_containers qualifier."""
+        """Location qualifies if at least one container matches has_any_containers qualifier."""
         loc = _loc(capacity=5)
         loc.store_containers(['L1'])
         provider = self._make_container_provider([dcs.Container(id='L1')])
         q = LocationQualifier(
-            any_containers=[ContainerQualifier(pattern=PatternMatchQualifier(regex='^L'))]
+            has_any_containers=[ContainerQualifier(pattern=PatternMatchQualifier(regex='^L'))]
         )
         self.assertTrue(q.check_if_qualifies(loc, container_provider=provider))
 
     def test_any_loads_qualifier_fail(self):
-        """Location fails if no containers match any_containers qualifier."""
+        """Location fails if no containers match has_any_containers qualifier."""
         loc = _loc(capacity=5)
         loc.store_containers(['X1'])
         provider = self._make_container_provider([dcs.Container(id='X1')])
         q = LocationQualifier(
-            any_containers=[ContainerQualifier(pattern=PatternMatchQualifier(regex='^L'))]
+            has_any_containers=[ContainerQualifier(pattern=PatternMatchQualifier(regex='^L'))]
         )
         self.assertFalse(q.check_if_qualifies(loc, container_provider=provider))
 
-    def test_all_loads_qualifier_pass(self):
-        """Location qualifies if all containers match all_containers qualifier."""
+    def test_has_all_containers_single_qualifier_passes_when_one_matches(self):
+        """has_all_containers=[q]: qualifies if at least one container satisfies q."""
         loc = _loc(capacity=5)
         loc.store_containers(['L1', 'L2'])
         provider = self._make_container_provider([dcs.Container(id='L1'), dcs.Container(id='L2')])
         q = LocationQualifier(
-            all_containers=[ContainerQualifier(pattern=PatternMatchQualifier(regex='^L'))]
+            has_all_containers=[ContainerQualifier(pattern=PatternMatchQualifier(regex='^L'))]
         )
         self.assertTrue(q.check_if_qualifies(loc, container_provider=provider))
 
-    def test_all_loads_qualifier_fail(self):
-        """Location fails if any container doesn't match all_containers qualifier."""
+    def test_has_all_containers_single_qualifier_passes_with_other_containers_present(self):
+        """has_all_containers=[q]: extra containers that don't match q must not cause failure.
+
+        Regression: old (buggy) code checked ALL containers against q, so having
+        an X-prefixed container alongside an L-prefixed one caused a false failure.
+        """
         loc = _loc(capacity=5)
-        loc.store_containers(['L1', 'X1'])
-        provider = self._make_container_provider([dcs.Container(id='L1'), dcs.Container(id='X1')])
+        loc.store_containers(['L1', 'X1', 'X2'])
+        provider = self._make_container_provider([
+            dcs.Container(id='L1'), dcs.Container(id='X1'), dcs.Container(id='X2'),
+        ])
         q = LocationQualifier(
-            all_containers=[ContainerQualifier(pattern=PatternMatchQualifier(regex='^L'))]
+            has_all_containers=[ContainerQualifier(pattern=PatternMatchQualifier(regex='^L'))]
+        )
+        self.assertTrue(q.check_if_qualifies(loc, container_provider=provider))
+
+    def test_has_all_containers_single_qualifier_fails_when_none_match(self):
+        """has_all_containers=[q]: fails only if no container in the location satisfies q."""
+        loc = _loc(capacity=5)
+        loc.store_containers(['X1', 'X2'])
+        provider = self._make_container_provider([dcs.Container(id='X1'), dcs.Container(id='X2')])
+        q = LocationQualifier(
+            has_all_containers=[ContainerQualifier(pattern=PatternMatchQualifier(regex='^L'))]
+        )
+        self.assertFalse(q.check_if_qualifies(loc, container_provider=provider))
+
+    def test_has_all_containers_empty_location_fails(self):
+        """has_all_containers: an empty location must not qualify (no vacuous truth).
+
+        Regression: old code used all(...) over an empty iterable which evaluates
+        True, causing empty locations to be incorrectly selected as sources.
+        """
+        loc = _loc(capacity=5)   # no containers stored
+        provider = self._make_container_provider([])
+        q = LocationQualifier(
+            has_all_containers=[ContainerQualifier(pattern=PatternMatchQualifier(regex='^L'))]
+        )
+        self.assertFalse(q.check_if_qualifies(loc, container_provider=provider))
+
+    def test_has_all_containers_multiple_qualifiers_all_satisfied(self):
+        """has_all_containers=[q1, q2]: passes when each qualifier is met by at least one container."""
+        loc = _loc(capacity=5)
+        loc.store_containers(['L1', 'M1'])
+        provider = self._make_container_provider([dcs.Container(id='L1'), dcs.Container(id='M1')])
+        q = LocationQualifier(
+            has_all_containers=[
+                ContainerQualifier(pattern=PatternMatchQualifier(regex='^L')),
+                ContainerQualifier(pattern=PatternMatchQualifier(regex='^M')),
+            ]
+        )
+        self.assertTrue(q.check_if_qualifies(loc, container_provider=provider))
+
+    def test_has_all_containers_multiple_qualifiers_one_unsatisfied(self):
+        """has_all_containers=[q1, q2]: fails if any qualifier has no matching container."""
+        loc = _loc(capacity=5)
+        loc.store_containers(['L1'])   # no M-prefixed container
+        provider = self._make_container_provider([dcs.Container(id='L1')])
+        q = LocationQualifier(
+            has_all_containers=[
+                ContainerQualifier(pattern=PatternMatchQualifier(regex='^L')),
+                ContainerQualifier(pattern=PatternMatchQualifier(regex='^M')),
+            ]
         )
         self.assertFalse(q.check_if_qualifies(loc, container_provider=provider))
 
     def test_any_loads_without_provider_raises(self):
-        """any_containers qualifier without a load_provider should raise."""
+        """has_any_containers qualifier without a load_provider should raise."""
         loc = _loc(capacity=5)
         loc.store_containers(['L1'])
         q = LocationQualifier(
-            any_containers=[ContainerQualifier(pattern=PatternMatchQualifier(regex='^L'))]
+            has_any_containers=[ContainerQualifier(pattern=PatternMatchQualifier(regex='^L'))]
         )
         with self.assertRaises(ValueError):
             q.check_if_qualifies(loc)

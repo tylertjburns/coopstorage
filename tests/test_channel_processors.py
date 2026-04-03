@@ -124,14 +124,14 @@ class TestLIFOFlowChannelProcessor(unittest.TestCase):
 class TestFIFOFlowBackwardChannelProcessor(unittest.TestCase):
     cp = FIFOFlowBackwardChannelProcessor()
 
-    def test_push_beyond_capacity_drops_oldest(self):
-        """Backward FIFO with _allow_push pushes and drops the tail."""
+    def test_push_beyond_capacity_raises(self):
+        """Backward FIFO raises NoRoomToAddException when channel is full (no empty slots)."""
+        from coopstorage.storage.loc_load.channel_processors import NoRoomToAddException
         state = _empty(3)
         state = self.cp.process(state, added=['a', 'b', 'c'])
-        # All slots filled; push 'd' — 'a' (first in) should be pushed off
-        state = self.cp.process(state, added=['d'])
-        self.assertIn('d', state)
-        self.assertNotIn('a', state)
+        # All slots filled; process() should raise rather than push-and-drop
+        with self.assertRaises(NoRoomToAddException):
+            self.cp.process(state, added=['d'])
 
     def test_first_in_is_removable(self):
         state = _empty(5)

@@ -63,35 +63,83 @@ def accessible_ids(state: Iterable[Optional[Hashable]],
 
 
 class ItemNotFoundToRemoveException(Exception):
-    def __init__(self, requested, state):
-        msg = f"Item <{requested}> requested to remove, but it wasnt found. <{state}>"
+    def __init__(self, channel_processor,requested, state):
+        msg = f"Item <{requested}> requested to remove from {channel_processor.__name__}, but it wasnt found. <{state}>"
         logger.error(msg)
         super().__init__(msg)
 
 
 class ItemNotAccessibleToRemoveException(Exception):
-    def __init__(self, requested, state, available):
-        msg = f"Item <{requested}> requested to remove, but item not in available items <{available}>: <{state}>"
+    def __init__(self, channel_processor, requested, state, available):
+        msg = f"Item <{requested}> requested to remove from {channel_processor.__name__}, but item not in removable items <{available}>: <{state}>"
         logger.error(msg)
         super().__init__(msg)
 
 
 class ItemBlockingToAddException(Exception):
-    def __init__(self, requested, pos, state):
-        msg = f"Item <{requested}> requested to add to pos {pos}, but item {state[pos]} already in that pos: <{state}>"
+    def __init__(self, channel_processor, requested, pos, state):
+        msg = f"Item <{requested}> requested to add to {channel_processor.__name__} at pos {pos}, but item {state[pos]} already in that pos: <{state}>"
         logger.error(msg)
         super().__init__(msg)
 
 
 class NoRoomToAddException(Exception):
-    def __init__(self, requested, state):
-        msg = f"Item <{requested}> requested to be added, but there is no room: <{state}>"
+    def __init__(self, channel_processor, requested, state):
+        msg = f"Item <{requested}> requested to be added to {channel_processor.__name__}, but there is no room: <{state}>"
         logger.error(msg)
         super().__init__(msg)
 
 
 class IChannelProcessor(Protocol):
     _allow_push: bool = False
+
+    @classmethod
+    def _next_blocker_position(cls,
+                               removable: List[int],
+                               target_pos: int,
+                               state: List[Optional[Hashable]]) -> int:
+        """Select which removable slot to sacrifice next when unblocking target_pos.
+
+        Default implementation: single-removable processors always have exactly
+        one choice, so just return it.  OMNI-style processors override this to
+        pick the shorter side.
+        """
+        return removable[0]
+
+    @classmethod
+    def get_blocking_loads(cls,
+                           container_id: Hashable,
+                           state: List[Optional[Hashable]]) -> Dict[Hashable, int]:
+        """Return the containers that must be removed before *container_id* is
+        accessible, in the order they should be removed.
+
+        Keys are container IDs; values are their slot index at the time they
+        should be removed (i.e. inside the simulated state at that step).
+        Returns ``{}`` if the target is already accessible or absent.
+        """
+        state = list(state)
+        if container_id not in state:
+            return {}
+
+        blockers: Dict[Hashable, int] = {}
+
+        for _ in range(len(state)):          # at most capacity iterations
+            try:
+                removable = cls.get_removable_positions(state)
+            except StopIteration:
+                break
+            if not removable:
+                break
+            target_pos = state.index(container_id)
+            if target_pos in removable:
+                break                        # target is now accessible
+
+            chosen = cls._next_blocker_position(removable, target_pos, state)
+            blockers[state[chosen]] = chosen
+            state[chosen] = None
+            state = list(cls.post_process(state))
+
+        return blockers
 
     @classmethod
     def process(cls,
@@ -121,11 +169,15 @@ class IChannelProcessor(Protocol):
                          item: Hashable,
                          state: Iterable[Optional[Hashable]]):
         if item not in state:
-            raise ItemNotFoundToRemoveException(requested=item, state=state)
+            raise ItemNotFoundToRemoveException(channel_processor=cls, requested=item, state=state)
 
         available = cls.get_removeable_ids(state)
         if item not in available.values():
-            raise ItemNotAccessibleToRemoveException(requested=item, state=state, available=available)
+            raise ItemNotAccessibleToRemoveException(
+                channel_processor=cls,
+                requested=item, 
+                state=state, 
+                available=available)
 
     @classmethod
     def _remove_items(cls,
@@ -169,10 +221,10 @@ class IChannelProcessor(Protocol):
             '''Check if there is space in the channel'''
             if ((idx is None) or
                     (not allow_replacement and not cls._allow_push and len([x for x in new_state if x is not None]) + 1 > len(new_state))):
-                raise NoRoomToAddException(requested=item, state=new_state)
+                raise NoRoomToAddException(channel_processor=cls, requested=item, state=new_state)
             '''Check if an item is present at position and it has not been signaled to allow push or replacement'''
             if new_state[idx] is not None and new_state[idx] != item and not allow_replacement and not cls._allow_push:
-                raise ItemBlockingToAddException(requested=item, pos=idx, state=new_state)
+                raise ItemBlockingToAddException(channel_processor=cls, requested=item, pos=idx, state=new_state)
             '''All Pass, add the item at pos'''
             if cls._allow_push and new_state[idx] is not None:
                 new_state.insert(idx, item)
@@ -331,6 +383,16 @@ class OMNIChannelProcessor(IChannelProcessor):
         super().__init__()
 
     @classmethod
+    def _next_blocker_position(cls,
+                               removable: List[int],
+                               target_pos: int,
+                               state: List[Optional[Hashable]]) -> int:
+        """Peel from whichever end has fewer occupied slots between it and target."""
+        left_count  = sum(1 for i, x in enumerate(state) if x is not None and i < target_pos)
+        right_count = sum(1 for i, x in enumerate(state) if x is not None and i > target_pos)
+        return min(removable) if left_count <= right_count else max(removable)
+
+    @classmethod
     def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
         idxs = [ii for ii, x in enumerate(state) if x is not None]
         if len(idxs) == 0:
@@ -354,6 +416,15 @@ class OMNIChannelProcessor(IChannelProcessor):
 class OMNIFlowChannelProcessor(IChannelProcessor):
     def __init__(self):
         super().__init__()
+
+    @classmethod
+    def _next_blocker_position(cls,
+                               removable: List[int],
+                               target_pos: int,
+                               state: List[Optional[Hashable]]) -> int:
+        left_count  = sum(1 for i, x in enumerate(state) if x is not None and i < target_pos)
+        right_count = sum(1 for i, x in enumerate(state) if x is not None and i > target_pos)
+        return min(removable) if left_count <= right_count else max(removable)
 
     @classmethod
     def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
@@ -381,6 +452,15 @@ class OMNIFlowBackwardChannelProcessor(IChannelProcessor):
 
     def __init__(self):
         super().__init__()
+
+    @classmethod
+    def _next_blocker_position(cls,
+                               removable: List[int],
+                               target_pos: int,
+                               state: List[Optional[Hashable]]) -> int:
+        left_count  = sum(1 for i, x in enumerate(state) if x is not None and i < target_pos)
+        right_count = sum(1 for i, x in enumerate(state) if x is not None and i > target_pos)
+        return min(removable) if left_count <= right_count else max(removable)
 
     @classmethod
     def get_removable_positions(cls, state: Iterable[Optional[Hashable]]) -> List[int]:
@@ -445,6 +525,130 @@ class MyTestCases(unittest.TestCase):
                                removed=['e'])
         self.assertRaises(ItemNotAccessibleToRemoveException, lambda: cp.process(state=new_state,
                                removed=['a']))
+
+    # ── get_blocking_loads tests ──────────────────────────────────────────────
+
+    def test_blocking_allavailable(self):
+        # AllAvailable: every item is always removable → never any blockers
+        cp = AllAvailableChannelProcessor()
+        state = [None, 'a', 'b', 'c', None]
+        self.assertEqual(cp.get_blocking_loads('b', state), {})
+        self.assertEqual(cp.get_blocking_loads('a', state), {})
+
+    def test_blocking_allavailable_flow(self):
+        # Flow variants also expose all slots
+        for CpType in (AllAvailableFlowChannelProcessor,
+                       AllAvailableFlowBackwardChannelProcessor):
+            cp = CpType()
+            state = cp.process([None]*5, added=['a', 'b', 'c'])
+            self.assertEqual(cp.get_blocking_loads('b', state), {})
+
+    def test_blocking_fifo_flow(self):
+        # FIFO forward: items pack right, removable = rightmost (oldest).
+        # State after adding a,b,c → [None, None, 'c', 'b', 'a']
+        cp = FIFOFlowChannelProcessor()
+        state = cp.process([None]*5, added=['a', 'b', 'c'])
+        # 'a' is oldest (rightmost), directly removable → no blockers
+        self.assertEqual(cp.get_blocking_loads('a', state), {})
+        # 'b' is blocked by 'a'
+        blockers_b = cp.get_blocking_loads('b', state)
+        self.assertIn('a', blockers_b)
+        self.assertNotIn('b', blockers_b)
+        self.assertNotIn('c', blockers_b)
+        # 'c' (newest, leftmost) is blocked by 'a' then 'b'
+        blockers_c = cp.get_blocking_loads('c', state)
+        self.assertIn('a', blockers_c)
+        self.assertIn('b', blockers_c)
+        self.assertNotIn('c', blockers_c)
+        # Order: 'a' must come before 'b' in the removal sequence
+        keys = list(blockers_c.keys())
+        self.assertLess(keys.index('a'), keys.index('b'))
+
+    def test_blocking_fifo_backward(self):
+        # FIFOBackward: items pack left, removable = rightmost (oldest on right).
+        # After adding a,b,c → ['c', 'b', 'a', None, None]
+        cp = FIFOFlowBackwardChannelProcessor()
+        state = cp.process([None]*5, added=['a', 'b', 'c'])
+        self.assertEqual(cp.get_blocking_loads('a', state), {})  # 'a' is rightmost → removable
+        blockers_b = cp.get_blocking_loads('b', state)
+        self.assertIn('a', blockers_b)
+        self.assertNotIn('b', blockers_b)
+
+    def test_blocking_lifo_flow(self):
+        # LIFO forward: items pack right, removable = leftmost (newest on left).
+        # After adding a,b,c → [None, None, 'c', 'b', 'a']
+        cp = LIFOFlowChannelProcessor()
+        state = cp.process([None]*5, added=['a', 'b', 'c'])
+        # 'c' is newest (leftmost), directly removable → no blockers
+        self.assertEqual(cp.get_blocking_loads('c', state), {})
+        # 'b' blocked by 'c'
+        blockers_b = cp.get_blocking_loads('b', state)
+        self.assertIn('c', blockers_b)
+        self.assertNotIn('b', blockers_b)
+        # 'a' (oldest, rightmost) blocked by 'c' then 'b'
+        blockers_a = cp.get_blocking_loads('a', state)
+        self.assertIn('c', blockers_a)
+        self.assertIn('b', blockers_a)
+        keys = list(blockers_a.keys())
+        self.assertLess(keys.index('c'), keys.index('b'))
+
+    def test_blocking_lifo_backward(self):
+        # LIFOBackward: items pack left, removable = leftmost (newest).
+        # After adding a,b,c → ['c', 'b', 'a', None, None]
+        cp = LIFOFlowBackwardChannelProcessor()
+        state = cp.process([None]*5, added=['a', 'b', 'c'])
+        self.assertEqual(cp.get_blocking_loads('c', state), {})   # 'c' leftmost → removable
+        blockers_a = cp.get_blocking_loads('a', state)
+        self.assertIn('c', blockers_a)
+        self.assertIn('b', blockers_a)
+        keys = list(blockers_a.keys())
+        self.assertLess(keys.index('c'), keys.index('b'))
+
+    def test_blocking_omni(self):
+        # OMNI (no flow): both ends accessible, choose shorter side.
+        cp = OMNIChannelProcessor()
+        # State: [None, 'a', 'b', 'c', 'd']
+        # target='b' (idx 2): left has 'a' (1 item), right has 'c','d' (2 items) → remove 'a'
+        state = [None, 'a', 'b', 'c', 'd']
+        blockers = cp.get_blocking_loads('b', state)
+        self.assertIn('a', blockers)
+        self.assertNotIn('c', blockers)
+        self.assertNotIn('d', blockers)
+        # target='c' (idx 3): left has 'a','b' (2), right has 'd' (1) → remove 'd'
+        blockers = cp.get_blocking_loads('c', state)
+        self.assertIn('d', blockers)
+        self.assertNotIn('a', blockers)
+        self.assertNotIn('b', blockers)
+        # target at an end is immediately accessible
+        self.assertEqual(cp.get_blocking_loads('a', state), {})
+        self.assertEqual(cp.get_blocking_loads('d', state), {})
+
+    def test_blocking_omni_flow(self):
+        # OMNIFlow: both ends accessible, items reflow after each removal.
+        cp = OMNIFlowChannelProcessor()
+        state = cp.process([None]*5, added=['a', 'b', 'c', 'd', 'e'])
+        # All slots full: [None, 'a', 'b', 'c', 'd', 'e'] → packed → ['a','b','c','d','e'] (len=5)
+        # 'a','e' at ends → immediately accessible
+        self.assertEqual(cp.get_blocking_loads('a', state), {})
+        self.assertEqual(cp.get_blocking_loads('e', state), {})
+        # 'c' in middle: need to peel from shorter side (both equal → choose left)
+        blockers = cp.get_blocking_loads('c', state)
+        self.assertEqual(len(blockers), 2)   # 2 items on each side, shortest = 2
+
+    def test_blocking_omni_flow_backward(self):
+        # OMNIFlowBackward: same logic, backward flow.
+        cp = OMNIFlowBackwardChannelProcessor()
+        state = cp.process([None]*5, added=['a', 'b', 'c', 'd', 'e'])
+        self.assertEqual(cp.get_blocking_loads('a', state), {})
+        self.assertEqual(cp.get_blocking_loads('e', state), {})
+        blockers = cp.get_blocking_loads('c', state)
+        self.assertEqual(len(blockers), 2)
+
+    def test_blocking_absent_container(self):
+        # Container not in state → empty dict
+        cp = FIFOFlowChannelProcessor()
+        state = [None, None, 'a', 'b', 'c']
+        self.assertEqual(cp.get_blocking_loads('z', state), {})
 
 
 class ChannelProcessorType(CoopEnum):

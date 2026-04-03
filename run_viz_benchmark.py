@@ -6,16 +6,19 @@ so you can watch the benchmark execute live in the browser visualizer.
 
 Usage
 -----
-    python run_viz_benchmark.py                  # SMALL config, 20ms delay
-    python run_viz_benchmark.py --config medium  # MEDIUM config
-    python run_viz_benchmark.py --delay 0.05     # 50ms between ops
-    python run_viz_benchmark.py --no-browser     # don't auto-open browser
-    python run_viz_benchmark.py --port 1219      # custom port (default 1219)
+    python run_viz_benchmark.py                         # SMALL benchmark, 20ms delay
+    python run_viz_benchmark.py --config medium         # MEDIUM benchmark
+    python run_viz_benchmark.py --mode sim              # continuous randomized simulation
+    python run_viz_benchmark.py --mode sim --config large
+    python run_viz_benchmark.py --delay 0.05            # 50ms between ops
+    python run_viz_benchmark.py --no-browser            # don't auto-open browser
+    python run_viz_benchmark.py --port 1219             # custom port (default 1219)
 
 The visualizer is served at:  http://localhost:<port>/static/index.html
 """
 
 import argparse
+import logging
 import sys
 import threading
 import time
@@ -34,17 +37,28 @@ from tests.test_storage_benchmark import (
     SMALL,
     MEDIUM,
     LARGE,
+    SimulationConfig,
+    SIM_SMALL,
+    SIM_LARGE,
     _build_storage,
     run_benchmark,
+    run_simulation,
 )
 from coopstorage.storage.api.api_factory import storage_api_factory
 
-# ── config map ────────────────────────────────────────────────────────────────
+# ── config maps ───────────────────────────────────────────────────────────────
 _CONFIGS: dict[str, BenchmarkConfig] = {
-    "mini":  MINI,
+    "mini":   MINI,
     "small":  SMALL,
     "medium": MEDIUM,
     "large":  LARGE,
+}
+
+_SIM_CONFIGS: dict[str, SimulationConfig] = {
+    "mini":   SIM_SMALL,
+    "small":  SIM_SMALL,
+    "medium": SIM_LARGE,
+    "large":  SIM_LARGE,
 }
 
 # ── server thread ─────────────────────────────────────────────────────────────
@@ -80,29 +94,52 @@ def _wait_for_server(host: str, port: int, timeout: float = 10.0):
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Run storage benchmark with live visualizer")
+    parser = argparse.ArgumentParser(description="Run storage benchmark/sim with live visualizer")
     parser.add_argument("--config",     default="small",
-                        choices=list(_CONFIGS), help="Benchmark size (default: small)")
+                        choices=list(_CONFIGS), help="Config size (default: small)")
+    parser.add_argument("--mode",       default="benchmark", choices=["benchmark", "sim"],
+                        help="'benchmark' runs a fixed workload; 'sim' runs continuously (default: benchmark)")
     parser.add_argument("--delay",      type=float, default=0.02,
                         help="Seconds to sleep between transfer ops (default: 0.02)")
     parser.add_argument("--host",       default="localhost")
     parser.add_argument("--port",       type=int, default=1219)
     parser.add_argument("--no-browser", action="store_true",
                         help="Don't auto-open the browser")
+    parser.add_argument("--log-level",  default="WARNING",
+                        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                        help="Logging level (default: WARNING)")
     args = parser.parse_args()
 
-    cfg = _CONFIGS[args.config]
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(levelname)s  %(name)s  %(message)s",
+    )
+
     viz_url = f"http://{args.host}:{args.port}/static/index.html"
 
-    print(f"\n  CoopStorage Visualizer Benchmark")
-    print(f"  config={args.config}  locations={cfg.num_locations:,}"
-          f"  ops={cfg.total_to_add:,}  delay={args.delay*1000:.0f}ms/op")
-    print(f"  visualizer → {viz_url}\n")
+    if args.mode == "sim":
+        sim_cfg = _SIM_CONFIGS[args.config]
+        # Build storage sized for the sim config (uses same _build_storage with compatible fields)
+        from tests.test_storage_benchmark import BenchmarkConfig as _BC
+        build_cfg = _BC(
+            locs_per_type=sim_cfg.locs_per_type,
+            location_capacity=sim_cfg.location_capacity,
+            total_to_add=0,
+        )
+        storage = _build_storage(build_cfg)
+        print(f"\n  CoopStorage Visualizer Simulation (continuous)")
+        print(f"  config={args.config}  locations={sim_cfg.num_locations:,}"
+              f"  delay={args.delay*1000:.0f}ms/op")
+        print(f"  visualizer → {viz_url}\n")
+    else:
+        cfg = _CONFIGS[args.config]
+        storage = _build_storage(cfg)
+        print(f"\n  CoopStorage Visualizer Benchmark")
+        print(f"  config={args.config}  locations={cfg.num_locations:,}"
+              f"  ops={cfg.total_to_add:,}  delay={args.delay*1000:.0f}ms/op")
+        print(f"  visualizer → {viz_url}\n")
 
-    # 1. Build a shared storage so the API snapshot serves benchmark state
-    storage = _build_storage(cfg)
-
-    # 2. Create and start the API server
+    # 1. Create and start the API server
     app = storage_api_factory(storage=storage)
     server_thread = _UvicornThread(app, args.host, args.port)
     server_thread.start()
@@ -111,27 +148,38 @@ def main():
     _wait_for_server(args.host, args.port)
     print("ready.")
 
-    # 3. Open browser
+    # 2. Open browser
     if not args.no_browser:
         webbrowser.open(viz_url)
         time.sleep(0.5)   # brief pause so the browser can load before ops start
 
-    # 4. Run benchmark — delay_provider slows ops to a visible pace
-    print(f"  Running benchmark (delay={args.delay*1000:.0f}ms between ops)…\n")
-    test_case = unittest.TestCase()
-    test_case.maxDiff = None
-
+    # 3. Run workload
     try:
-        run_benchmark(
-            test=test_case,
-            cfg=cfg,
-            storage=storage,
-            delay_provider=lambda: args.delay,
-        )
+        if args.mode == "sim":
+            print(f"  Running simulation (delay={args.delay*1000:.0f}ms between ops,"
+                  f" Ctrl+C to stop)…\n")
+            stop_event = threading.Event()
+            run_simulation(
+                storage=storage,
+                cfg=sim_cfg,
+                delay_provider=lambda: args.delay,
+                stop_event=stop_event,
+            )
+        else:
+            print(f"  Running benchmark (delay={args.delay*1000:.0f}ms between ops)…\n")
+            test_case = unittest.TestCase()
+            test_case.maxDiff = None
+            run_benchmark(
+                test=test_case,
+                cfg=cfg,
+                storage=storage,
+                delay_provider=lambda: args.delay,
+            )
     except KeyboardInterrupt:
         print("\n  Interrupted.")
 
-    print(f"\n  Benchmark complete. Visualizer still running at {viz_url}")
+    suffix = "Simulation stopped." if args.mode == "sim" else "Benchmark complete."
+    print(f"\n  {suffix} Visualizer still running at {viz_url}")
     print("  Press Ctrl+C to exit.\n")
 
     try:

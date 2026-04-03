@@ -55,8 +55,8 @@ class LocationQualifier:
     id_pattern:  Optional[PatternMatchQualifier] = None
     max_dims:  Optional[vec.FloatVec] = None
     min_dims:  Optional[vec.FloatVec] = None
-    any_containers:  Optional[Iterable[ContainerQualifier]] = None
-    all_containers:  Optional[Iterable[ContainerQualifier]] = None
+    has_any_containers:  Optional[Iterable[ContainerQualifier]] = None
+    has_all_containers:  Optional[Iterable[ContainerQualifier]] = None
     reserved:  Optional[bool] = None
     at_least_capacity:  Optional[int] = None
     is_occupied:  Optional[bool] = None
@@ -83,20 +83,25 @@ class LocationQualifier:
             if not _dims_within_max(container.uom.dimensions, loc.SlotDims):
                 return False
 
-        # Disqualify if doesn't have any of any_containers
-        if self.any_containers is not None:
+        # Disqualify if doesn't have any of has_any_containers
+        if self.has_any_containers is not None:
             if container_provider is None:
-                raise ValueError("container_provider is required when using any_containers qualifier")
+                raise ValueError("container_provider is required when using has_any_containers qualifier")
             loc_containers = container_provider(loc.ContainerIds).values()
-            if not any(q.check_if_qualifies(container) for container in loc_containers for q in self.any_containers):
+            if not any(q.check_if_qualifies(container) for container in loc_containers for q in self.has_any_containers):
                 return False
 
-        # Disqualify if doesn't have all of all_containers
-        if self.all_containers is not None:
+        # Disqualify if doesn't have all of has_all_containers
+        # Semantics: for each qualifier q, the location must contain at least one
+        # container satisfying q (the location may also contain other containers).
+        if self.has_all_containers is not None:
             if container_provider is None:
-                raise ValueError("container_provider is required when using all_containers qualifier")
-            loc_containers = container_provider(loc.ContainerIds).values()
-            if not all(q.check_if_qualifies(container) for container in loc_containers for q in self.all_containers):
+                raise ValueError("container_provider is required when using has_all_containers qualifier")
+            loc_containers = list(container_provider(loc.ContainerIds).values())
+            if not all(
+                any(q.check_if_qualifies(container) for container in loc_containers)
+                for q in self.has_all_containers
+            ):
                 return False
 
         # Disqualify on capacity

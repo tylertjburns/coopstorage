@@ -231,7 +231,8 @@ class Storage:
 
     def resolve_transfer_request_criteria(
             self,
-            criteria: TransferRequestCriteria
+            criteria: TransferRequestCriteria,
+            dest_loc_evaluator: Callable[[Location], float] = None,
     ) -> TransferRequest:
         # ── Source & Container (peer resolvers) ───────────────────────────────
         # Either defines the other; if both supplied, validate consistency.
@@ -254,7 +255,7 @@ class Storage:
             container = comm.filter(self._data_store.ContainersData.get().values(),
                                     criteria.container_query_args.check_if_qualifies)[0]
             source = self.select_location(filter=qs.LocationQualifier(
-                all_containers=[criteria.container_query_args]
+                has_all_containers=[criteria.container_query_args]
             ))
 
         elif criteria.new_container is not None:
@@ -264,9 +265,9 @@ class Storage:
         # ── Dest (resolved after container is known; slot fit enforced) ───────
         dest = None
         if criteria.dest_loc_query_args is not None:
-            dest = self.select_location(criteria.dest_loc_query_args, container=container)
+            dest = self.select_location(criteria.dest_loc_query_args, evaluator=dest_loc_evaluator, container=container)
         elif criteria.new_container is not None and criteria.dest_loc_query_args is None:
-            dest = self.select_location(container=container)
+            dest = self.select_location(evaluator=dest_loc_evaluator, container=container)
 
         return TransferRequest(
             criteria=criteria,
@@ -318,11 +319,14 @@ class Storage:
             payload.update({f'to_{k}': v for k, v in _channel_access_for_loc(dst).items()})
         pub.sendMessage(StorageTopic.CONTAINER_MOVED.value, payload=payload)
 
-    def handle_transfer_requests(self, transfer_request_criteria: Iterable[TransferRequestCriteria]):
+    def handle_transfer_requests(self,
+                                 transfer_request_criteria: Iterable[TransferRequestCriteria],
+                                 dest_loc_evaluator: Callable[[Location], float] = None):
         with self._lock:
             for criteria in transfer_request_criteria:
                 request = self.resolve_transfer_request_criteria(
-                    criteria=criteria
+                    criteria=criteria,
+                    dest_loc_evaluator=dest_loc_evaluator,
                 )
                 self._data_store.TransferRequestsData.add([request])
                 self._data_store.ContainersData.add_or_update(containers=[request.container])
@@ -336,7 +340,7 @@ class Storage:
                         pub.sendMessage(StorageTopic.CONTAINER_REMOVED.value,
                                         payload={'id': str(request.container.id)})
                 else:
-                    logger.error(f"{pprint.pformat(request)}")
+                    logger.error(f"Transfer request not ready: \n{pprint.pformat(request)}")
                     raise NotImplementedError()
 
     @property

@@ -19,17 +19,23 @@ Typical usage:
 """
 
 from dataclasses import dataclass, field
+import logging
 import random
+import threading
 import time
 import unittest
 from typing import Callable, Optional
 
+logger = logging.getLogger(__name__)
+
 import coopstorage.storage.loc_load.channel_processors as cps
 import coopstorage.storage.loc_load.dcs as dcs
+import coopstorage.storage.loc_load.evaluators as evaluators
 from coopstorage.storage.loc_load.location import Location
-from coopstorage.storage.loc_load.qualifiers import LocationQualifier
+from coopstorage.storage.loc_load.qualifiers import ContainerQualifier, LocationQualifier
 from coopstorage.storage.loc_load.storage import Storage
 from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria
+from cooptools.qualifiers import PatternMatchQualifier, WhiteBlackListQualifier
 
 # ── channel processor registry ────────────────────────────────────────────────
 
@@ -378,6 +384,213 @@ class TestStorageBenchmarkLarge(unittest.TestCase):
     """
     def test_benchmark(self):
         run_benchmark(self, LARGE)
+
+
+# ── simulation ────────────────────────────────────────────────────────────────
+
+@dataclass
+class SimulationConfig:
+    """Config for the continuous randomized simulation."""
+    locs_per_type:     int   = 3
+    location_capacity: int   = 5
+    min_fill_pct:      float = 0.15   # keep fill above this before adding
+    max_fill_pct:      float = 0.85   # bias toward removing above this
+    add_weight:        float = 0.45
+    move_weight:       float = 0.40
+    remove_weight:     float = 0.15
+
+    @property
+    def num_locations(self) -> int:
+        return self.locs_per_type * len(CHANNEL_PROCESSOR_TYPES)
+
+    @property
+    def max_concurrent(self) -> int:
+        return self.num_locations * self.location_capacity
+
+
+SIM_SMALL = SimulationConfig()
+SIM_LARGE = SimulationConfig(locs_per_type=10)
+
+
+def run_simulation(
+    storage: 'Storage',
+    cfg: SimulationConfig = None,
+    delay_provider: Optional[Callable[[], float]] = None,
+    stop_event: Optional[threading.Event] = None,
+) -> None:
+    """
+    Run a continuous randomized add/move/remove loop on *storage* until
+    ``stop_event`` is set (or forever if None).
+
+    Operation weights are biased by current fill level:
+      - below min_fill_pct  → only add
+      - above max_fill_pct  → only remove
+      - in between          → weighted random among add / move / remove
+
+    Args:
+        storage:        A pre-built Storage instance to operate on.
+        cfg:            SimulationConfig; defaults to SIM_SMALL.
+        delay_provider: Optional callable returning seconds to sleep after each op.
+        stop_event:     threading.Event that signals the loop to exit cleanly.
+    """
+    if cfg is None:
+        cfg = SIM_SMALL
+    if stop_event is None:
+        stop_event = threading.Event()
+
+    container_counter = 0
+    total_ops         = 0
+    start             = time.perf_counter()
+    last_status       = start
+    STATUS_INTERVAL   = 5.0
+
+    def _new_cid() -> str:
+        nonlocal container_counter
+        cid = f"S{container_counter:08d}"
+        container_counter += 1
+        return cid
+
+    def _current_count() -> int:
+        return len(storage.ContainerLocs)
+
+    def _do_add():
+        cid = _new_cid()
+        logger.debug("add  container=%s", cid)
+        storage.handle_transfer_requests(
+            [TransferRequestCriteria(
+                new_container=dcs.Container(id=cid),
+                dest_loc_query_args=LocationQualifier(at_least_capacity=1),
+            )],
+            dest_loc_evaluator=evaluators.fewest_containers,
+        )
+
+    def _unblock(target_container) -> bool:
+        """Move all containers blocking target_container in its current location.
+
+        Returns False if the target can't be found in storage (already gone),
+        True otherwise (blockers moved, target is now accessible).
+        """
+        container_locs = storage.ContainerLocs
+        target_loc = next(
+            (loc for c, loc in container_locs.items() if c.id == target_container.id),
+            None,
+        )
+        if target_loc is None:
+            logger.debug("unblock  container=%s  not_found_in_storage", target_container.id)
+            return False
+
+        state = [target_loc.ContainerPositions.get(i) for i in range(target_loc.Capacity)]
+        cp    = target_loc.Meta.channel_processor
+        blockers = cp.get_blocking_loads(target_container.id, state)
+
+        if blockers:
+            logger.debug(
+                "unblock  container=%s  loc=%s  blockers=%s",
+                target_container.id, target_loc.Id, list(blockers.keys()),
+            )
+
+        for blocker_id in blockers:
+            logger.debug("unblock  moving blocker=%s", blocker_id)
+            storage.handle_transfer_requests(
+                [TransferRequestCriteria(
+                    container_query_args=ContainerQualifier(
+                        pattern=PatternMatchQualifier(id=blocker_id)
+                    ),
+                    dest_loc_query_args=LocationQualifier(
+                        at_least_capacity=1,
+                        id_pattern=PatternMatchQualifier(
+                            white_list_black_list_qualifier=WhiteBlackListQualifier(
+                                black_list=[str(target_loc.Id)]
+                            )
+                        ),
+                    ),
+                )],
+                dest_loc_evaluator=evaluators.fewest_containers,
+            )
+        return True
+
+    def _do_remove():
+        containers = list(storage.get_containers().values())
+        if not containers:
+            return
+        c = random.choice(containers)
+        try:
+            if not _unblock(c):
+                return
+            logger.debug("remove  container=%s", c.id)
+            storage.handle_transfer_requests([
+                TransferRequestCriteria(
+                    container_query_args=ContainerQualifier(
+                        pattern=PatternMatchQualifier(id=c.id)
+                    ),
+                    delete_container_on_transfer=True,
+                )
+            ])
+        except Exception as e:
+            logger.warning("remove  container=%s  error=%s: %s",
+                           c.id, type(e).__name__, e)
+
+    def _do_move():
+        containers = list(storage.get_containers().values())
+        if not containers:
+            return
+        c = random.choice(containers)
+        try:
+            if not _unblock(c):
+                return
+            logger.debug("move  container=%s", c.id)
+            storage.handle_transfer_requests(
+                [TransferRequestCriteria(
+                    container_query_args=ContainerQualifier(
+                        pattern=PatternMatchQualifier(id=c.id)
+                    ),
+                    dest_loc_query_args=LocationQualifier(at_least_capacity=1),
+                )],
+                dest_loc_evaluator=evaluators.fewest_containers,
+            )
+        except Exception as e:
+            logger.warning("move  container=%s  error=%s: %s",
+                           c.id, type(e).__name__, e)
+
+    while not stop_event.is_set():
+        count   = _current_count()
+        fill    = count / cfg.max_concurrent if cfg.max_concurrent > 0 else 0
+
+        if fill < cfg.min_fill_pct:
+            op = 'add'
+        elif fill > cfg.max_fill_pct:
+            op = 'remove'
+        else:
+            op = random.choices(
+                ['add', 'move', 'remove'],
+                weights=[cfg.add_weight, cfg.move_weight, cfg.remove_weight],
+            )[0]
+
+        try:
+            if op == 'add':
+                _do_add()
+            elif op == 'move':
+                _do_move()
+            else:
+                _do_remove()
+        except Exception as e:
+            logger.warning("sim  op=%s  error=%s: %s", op, type(e).__name__, e)
+
+        total_ops += 1
+
+        if delay_provider is not None:
+            time.sleep(delay_provider())
+
+        now = time.perf_counter()
+        if now - last_status >= STATUS_INTERVAL:
+            elapsed = now - start
+            rate    = total_ops / elapsed if elapsed > 0 else 0
+            print(
+                f"  [sim]  ops={total_ops:,}  concurrent={count:,}/{cfg.max_concurrent:,}"
+                f"  fill={fill:.0%}  elapsed={elapsed:.0f}s  rate={rate:,.0f}/s",
+                flush=True,
+            )
+            last_status = now
 
 
 if __name__ == "__main__":
