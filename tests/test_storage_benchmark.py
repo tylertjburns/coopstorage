@@ -37,24 +37,6 @@ from coopstorage.storage.loc_load.storage import Storage
 from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria
 from cooptools.qualifiers import PatternMatchQualifier, WhiteBlackListQualifier
 
-# ── channel processor registry ────────────────────────────────────────────────
-
-CHANNEL_PROCESSOR_TYPES = [
-    cps.AllAvailableChannelProcessor,
-    cps.AllAvailableFlowChannelProcessor,
-    cps.AllAvailableFlowBackwardChannelProcessor,
-    cps.FIFOFlowChannelProcessor,
-    cps.FIFOFlowBackwardChannelProcessor,
-    cps.FIFONoFlowChannelProcessor,
-    cps.FIFONoFlowPushChannelProcessor,
-    cps.LIFOFlowChannelProcessor,
-    cps.LIFOFlowBackwardChannelProcessor,
-    cps.LIFONoFlowChannelProcessor,
-    cps.LIFONoFlowPushChannelProcessor,
-    cps.OMNIChannelProcessor,
-    cps.OMNIFlowChannelProcessor,
-    cps.OMNIFlowBackwardChannelProcessor,
-]
 
 # ── config ────────────────────────────────────────────────────────────────────
 
@@ -72,7 +54,7 @@ class BenchmarkConfig:
 
     @property
     def num_locations(self) -> int:
-        return self.locs_per_type * len(CHANNEL_PROCESSOR_TYPES)
+        return self.locs_per_type * len(cps.ChannelProcessorType)
 
     @property
     def max_concurrent(self) -> int:
@@ -135,15 +117,15 @@ _LOC_SPACING = 15   # world units between adjacent locations
 def _build_storage(cfg: BenchmarkConfig) -> Storage:
     locations = [
         Location(
-            id=f"{cp.__name__}_{i:04d}",
+            id=f"{cp.name}_{i:04d}",
             location_meta=dcs.LocationMeta(
                 dims=(10, 10, 5),
-                channel_processor=cp(),
+                channel_processor=cp.value,
                 capacity=cfg.location_capacity,
             ),
             coords=(type_idx * _LOC_SPACING, i * _LOC_SPACING, 0),
         )
-        for type_idx, cp in enumerate(CHANNEL_PROCESSOR_TYPES)
+        for type_idx, cp in enumerate(cps.ChannelProcessorType)
         for i in range(cfg.locs_per_type)
     ]
     return Storage(locs=locations)
@@ -352,7 +334,7 @@ def run_benchmark(
     print(f"  STORAGE BENCHMARK  [{type(test).__name__}]")
     print(f"{'='*62}")
     print(f"  Locations:            {cfg.num_locations:,}  "
-          f"({len(CHANNEL_PROCESSOR_TYPES)} types × {cfg.locs_per_type:,} each)")
+          f"({len(cps.ChannelProcessorType)} types × {cfg.locs_per_type:,} each)")
     print(f"  Max concurrent cap:   {cfg.max_concurrent:,}  "
           f"(fill={cfg.fill_threshold_pct:.0%}, drain={cfg.drain_to_pct:.0%})")
     print(f"  Total time:           {total_time:.2f}s")
@@ -405,7 +387,7 @@ class SimulationConfig:
 
     @property
     def num_locations(self) -> int:
-        return self.locs_per_type * len(CHANNEL_PROCESSOR_TYPES)
+        return self.locs_per_type * len(cps.ChannelProcessorType)
 
     @property
     def max_concurrent(self) -> int:
@@ -435,17 +417,17 @@ def _build_showcase_storage(cfg: ShowcaseConfig = None):
     import math
     if cfg is None:
         cfg = SHOWCASE
-    n = len(CHANNEL_PROCESSOR_TYPES)
+    n = len(cps.ChannelProcessorType)
     cols = math.ceil(math.sqrt(n))
     locations = []
-    for idx, cp_type in enumerate(CHANNEL_PROCESSOR_TYPES):
+    for idx, cp_type in enumerate(cps.ChannelProcessorType):
         row = idx // cols
         col = idx % cols
         locations.append(Location(
-            id=cp_type.__name__,
+            id=cp_type.name,
             location_meta=dcs.LocationMeta(
                 dims=(10, 10, 5),
-                channel_processor=cp_type(),
+                channel_processor=cp_type.value,
                 capacity=cfg.location_capacity,
             ),
             coords=(col * _LOC_SPACING, row * _LOC_SPACING, 0),

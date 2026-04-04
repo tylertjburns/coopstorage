@@ -451,12 +451,14 @@ function _drawDetail3D(loc) {
   }
 
   // Location ID — top of x+ (right) face of bounding cube, -30° to follow world -y axis
-  if (isIso) {
-    const [lx, ly] = project(wx+dx, wy+dy/2, wz+dz);
-    _isoText(String(loc.id), lx, ly, -Math.PI/6, dy * scale * 0.85, 12, 'top', 12/2);
-  } else {
-    const [lx, ly] = project(wx + dx/2, wy + dy/2, 0);
-    _isoText(String(loc.id), lx, ly, 0, dx * scale * 0.85, 12, 'middle');
+  if (scale > 10) {
+    if (isIso) {
+      const [lx, ly] = project(wx+dx, wy+dy/2, wz+dz);
+      _isoText(String(loc.id), lx, ly, -Math.PI/6, dy * scale * 0.85, 12, 'top', 12/2);
+    } else {
+      const [lx, ly] = project(wx + dx/2, wy + dy/2, 0);
+      _isoText(String(loc.id), lx, ly, 0, dx * scale * 0.85, 12, 'middle');
+    }
   }
 }
 
@@ -475,9 +477,11 @@ function _drawDetailCard(loc, sx, sy) {
   ctx.fillRect(x0, y0, totalW, totalH);
   ctx.strokeRect(x0, y0, totalW, totalH);
 
-  ctx.fillStyle    = '#e6edf3'; ctx.font = '12px monospace';
-  ctx.textAlign    = 'left';   ctx.textBaseline = 'top';
-  ctx.fillText(String(loc.id).slice(0, 14), x0 + 4, y0 + 3);
+  if (scale > 10) {
+    ctx.fillStyle    = '#e6edf3'; ctx.font = '12px monospace';
+    ctx.textAlign    = 'left';   ctx.textBaseline = 'top';
+    ctx.fillText(String(loc.id).slice(0, 14), x0 + 4, y0 + 3);
+  }
 
   const used = loc.slots.filter(s => s !== null).length;
   ctx.fillStyle = '#e6edf3';

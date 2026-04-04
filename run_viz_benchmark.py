@@ -24,13 +24,10 @@ import sys
 import threading
 import time
 import unittest
-import webbrowser
 from pathlib import Path
 
 # ── make sure the package is importable when run from the project root ────────
 sys.path.insert(0, str(Path(__file__).parent))
-
-import uvicorn
 
 from tests.test_storage_benchmark import (
     BenchmarkConfig,
@@ -48,7 +45,7 @@ from tests.test_storage_benchmark import (
     _build_showcase_storage,
     run_showcase_sim,
 )
-from coopstorage.storage.api.api_factory import storage_api_factory
+from coopstorage.viz_helper import start_visualizer
 
 # ── config maps ───────────────────────────────────────────────────────────────
 _CONFIGS: dict[str, BenchmarkConfig] = {
@@ -64,35 +61,6 @@ _SIM_CONFIGS: dict[str, SimulationConfig] = {
     "medium": SIM_LARGE,
     "large":  SIM_LARGE,
 }
-
-# ── server thread ─────────────────────────────────────────────────────────────
-
-class _UvicornThread(threading.Thread):
-    """Runs uvicorn in a background daemon thread."""
-
-    def __init__(self, app, host: str, port: int):
-        super().__init__(daemon=True, name="uvicorn")
-        self._config = uvicorn.Config(app, host=host, port=port, log_level="warning")
-        self._server = uvicorn.Server(self._config)
-
-    def run(self):
-        self._server.run()
-
-    def stop(self):
-        self._server.should_exit = True
-
-
-def _wait_for_server(host: str, port: int, timeout: float = 10.0):
-    """Block until the HTTP server is accepting connections."""
-    import socket
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=0.5):
-                return
-        except OSError:
-            time.sleep(0.1)
-    raise RuntimeError(f"Server did not start within {timeout}s")
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -147,21 +115,16 @@ def main():
         print(f"  visualizer -> {viz_url}\n")
         storage = _build_showcase_storage()
 
-    # 1. Create and start the API server
-    app = storage_api_factory(storage=storage)
-    server_thread = _UvicornThread(app, args.host, args.port)
-    server_thread.start()
+    # 1. Start the API server and (optionally) open the browser
+    server_thread = start_visualizer(
+        storage=storage,
+        host=args.host,
+        port=args.port,
+        open_browser=not args.no_browser,
+        block=False,
+    )
 
-    print("  Starting API server…", end=" ", flush=True)
-    _wait_for_server(args.host, args.port)
-    print("ready.")
-
-    # 2. Open browser
-    if not args.no_browser:
-        webbrowser.open(viz_url)
-        time.sleep(0.5)   # brief pause so the browser can load before ops start
-
-    # 3. Run workload
+    # 2. Run workload
     try:
         if args.mode == "sim":
             print(f"  Running simulation (delay={args.delay*1000:.0f}ms between ops,"
