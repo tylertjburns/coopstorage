@@ -1025,7 +1025,7 @@ async function loadSnapshot() {
   statusEl.textContent = 'Loading snapshot…';
 
   do {
-    const res = await fetch(`/snapshot?offset=${offset}&limit=${SNAPSHOT_PAGE}`);
+    const res = await fetch(`/v1/snapshot?offset=${offset}&limit=${SNAPSHOT_PAGE}`);
     if (!res.ok) throw new Error(`Snapshot HTTP ${res.status}`);
     const data = await res.json();
     total = data.total;
@@ -1065,7 +1065,7 @@ function _prewarmTiles(locs, i = 0) {
 }
 
 function connectSSE(subscriberId) {
-  const es = new EventSource(`/events/${subscriberId}`);
+  const es = new EventSource(`/v1/events/${subscriberId}`);
 
   es.addEventListener('message', e => {
     applyEvent(JSON.parse(e.data));
@@ -1096,7 +1096,7 @@ async function boot() {
         : `Server not ready — retrying… (${attempt}/${MAX_ATTEMPTS})`;
 
       // 1. Obtain subscriber_id before loading snapshot so no events are missed
-      const subRes = await fetch('/subscribe', { method: 'POST' });
+      const subRes = await fetch('/v1/subscribe', { method: 'POST' });
       if (!subRes.ok) throw new Error(`Subscribe HTTP ${subRes.status}`);
       const { subscriber_id } = await subRes.json();
 

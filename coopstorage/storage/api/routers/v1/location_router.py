@@ -1,7 +1,7 @@
 import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Iterable, List, Tuple, Dict
+from typing import Iterable, List, Tuple, Dict, Any
 
 from coopstorage.storage.loc_load.storage import Storage
 from coopstorage.storage.loc_load import dcs
@@ -39,6 +39,7 @@ class LocationAPI(BaseModel):
     id: str
     meta: LocationMetaAPI
     coords: CoordAPI
+    tree_labels: Dict[str, Any] = {}
 
     def as_loc(self) -> Location:
         return Location(
@@ -64,6 +65,9 @@ def location_router_factory(storage: Storage) -> APIRouter:
     def put_locations(body: LocationsRequestAPIWrapper):
         locs = [x.as_loc() for x in body.locations]
         storage.register_locs(locs=locs)
+        for loc_api in body.locations:
+            if loc_api.tree_labels:
+                storage.LocationMapTree.register(loc_api.id, **loc_api.tree_labels)
         ids = [x.id for x in body.locations]
         logger.info(f"Locations registered: {ids}")
         return {"registered": ids}
