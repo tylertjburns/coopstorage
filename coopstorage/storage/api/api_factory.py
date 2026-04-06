@@ -14,6 +14,7 @@ from coopstorage.storage.api.routers.location_router import location_router_fact
 from coopstorage.storage.api.routers.transfer_request_router import transfer_request_router_factory
 from coopstorage.storage.api.routers.snapshot_router import snapshot_router_factory
 from coopstorage.storage.api.routers.events_router import events_router_factory
+from coopstorage.storage.api.routers.tree_router import tree_router_factory
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ def storage_api_factory(storage: Storage = None) -> FastAPI:
     app.include_router(transfer_request_router_factory(storage),   tags=["transfer_requests"])
     app.include_router(snapshot_router_factory(storage),           tags=["snapshot"])
     app.include_router(events_router_factory(event_bus),           tags=["events"])
+    app.include_router(tree_router_factory(storage))
 
     static_dir = os.path.join(os.path.dirname(__file__), "static")
     app.mount("/static", StaticFiles(directory=static_dir), name="static")

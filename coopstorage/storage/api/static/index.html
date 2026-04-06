@@ -96,9 +96,122 @@
 <script>
 // ─── State ────────────────────────────────────────────────────────────────────
 // locations: id → { id, coords:[x,y,z], meta:{dims,channel_processor,capacity,...},
-//                   slots:[id|null,...], containers:{id→{id,uom,contents}} }
+//                   slots:[id|null,...], containers:{id→{id,uom,contents}},
+//                   tree_path:{zone,aisle,...} }
 const locations  = new Map();
 const containers = new Map();   // flat container registry
+
+// ─── Aisle index ──────────────────────────────────────────────────────────────
+// aisleKey(loc) → string used as the aisle identity (zone+aisle)
+// aisleIndex: aisleKey → Set of loc_ids
+// aisleBoxCache: aisleKey → { minX, minY, maxX, maxY } in world coords (cached)
+const aisleIndex    = new Map();
+const aisleBoxCache = new Map();
+let   hoveredAisleKey = null;
+
+function _aisleKey(loc) {
+  const tp = loc.tree_path;
+  if (!tp || tp.zone === undefined || tp.aisle === undefined) return null;
+  return `z${tp.zone}_a${tp.aisle}`;
+}
+
+function _indexLoc(loc) {
+  const key = _aisleKey(loc);
+  if (!key) return;
+  if (!aisleIndex.has(key)) aisleIndex.set(key, new Set());
+  aisleIndex.get(key).add(loc.id);
+  aisleBoxCache.delete(key);  // invalidate cached box
+}
+
+function _aisleBox(key) {
+  if (aisleBoxCache.has(key)) return aisleBoxCache.get(key);
+  const ids = aisleIndex.get(key);
+  if (!ids) return null;
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const id of ids) {
+    const loc = locations.get(id);
+    if (!loc) continue;
+    const [wx, wy, wz] = loc.coords;
+    const [dx, dy, dz] = loc.meta.dims;
+    minX = Math.min(minX, wx);      maxX = Math.max(maxX, wx + dx);
+    minY = Math.min(minY, wy);      maxY = Math.max(maxY, wy + dy);
+    minZ = Math.min(minZ, wz);      maxZ = Math.max(maxZ, wz + dz);
+  }
+  const box = { minX, minY, minZ, maxX, maxY, maxZ };
+  aisleBoxCache.set(key, box);
+  return box;
+}
+
+function _aisleOccupancyPct(key) {
+  const ids = aisleIndex.get(key);
+  if (!ids) return 0;
+  let used = 0, cap = 0;
+  for (const id of ids) {
+    const loc = locations.get(id);
+    if (!loc) continue;
+    cap  += loc.slots.length;
+    used += loc.slots.filter(s => s !== null).length;
+  }
+  return cap > 0 ? used / cap : 0;
+}
+
+function _drawAisleWireframe(key) {
+  const box = _aisleBox(key);
+  if (!box) return;
+  const pct = _aisleOccupancyPct(key);
+  // Interpolate between empty (#444c56) and occupied (#3fb950) to match slot colors
+  const r = Math.round(0x44 + pct * (0x3f - 0x44));
+  const g = Math.round(0x4c + pct * (0xb9 - 0x4c));
+  const b = Math.round(0x56 + pct * (0x50 - 0x56));
+  const stroke = `rgb(${r},${g},${b})`;
+
+  if (isIso) {
+    const p = (x, y, z) => project(x, y, z);
+    const { minX: x0, minY: y0, minZ: z0, maxX: x1, maxY: y1, maxZ: z1 } = box;
+    // Draw three visible wireframe edges (left, right, top faces) of the bounding cube
+    const edges = [
+      // bottom rect
+      [p(x0,y0,z0), p(x1,y0,z0)], [p(x1,y0,z0), p(x1,y1,z0)],
+      [p(x1,y1,z0), p(x0,y1,z0)], [p(x0,y1,z0), p(x0,y0,z0)],
+      // top rect
+      [p(x0,y0,z1), p(x1,y0,z1)], [p(x1,y0,z1), p(x1,y1,z1)],
+      [p(x1,y1,z1), p(x0,y1,z1)], [p(x0,y1,z1), p(x0,y0,z1)],
+      // verticals
+      [p(x0,y0,z0), p(x0,y0,z1)], [p(x1,y0,z0), p(x1,y0,z1)],
+      [p(x1,y1,z0), p(x1,y1,z1)], [p(x0,y1,z0), p(x0,y1,z1)],
+    ];
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth   = 1;
+    for (const [a, b] of edges) {
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.stroke();
+    }
+  } else {
+    const [sx0, sy0] = project(box.minX, box.minY, 0);
+    const [sx1, sy1] = project(box.maxX, box.maxY, 0);
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth   = 1;
+    ctx.strokeRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
+  }
+
+  // Label
+  const [lx, ly] = isIso
+    ? project((box.minX + box.maxX) / 2, box.minY, box.maxZ)
+    : project((box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2, 0);
+  const ids = aisleIndex.get(key);
+  const sample = ids ? locations.get([...ids][0]) : null;
+  if (sample && sample.tree_path) {
+    const tp = sample.tree_path;
+    ctx.fillStyle    = stroke;
+    ctx.font         = '11px monospace';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`Z${tp.zone} A${tp.aisle}`, lx, ly);
+  }
+}
 
 // ─── UOM icon system ──────────────────────────────────────────────────────────
 // Pool of distinct unicode symbols assigned deterministically per UOM name.
@@ -138,20 +251,20 @@ function _refreshUomLegend() {
 // avoid rebuilding stale tiles on every frame.
 const tileCache = new Map();  // loc.id → { key, canvas, ox, oy }
 let   zooming   = false;
+let   panning   = false;
 let   _zoomTimer = null;
+let   _panTimer  = null;
 
 function _locStateKey(loc) {
-  // Encode everything that affects the tile's pixel content.
-  // scale is intentionally NOT included — tiles are drawn in world coords
-  // and blitted with ctx.drawImage at the right screen position.
-  // But: tiles ARE scale-dependent (pixel size of slot geometry changes).
-  // So we include scale quantised to 2dp to re-use across tiny float changes.
-  const s = scale.toFixed(2);
-  const slots   = loc.slots.join(',');
-  const add     = (loc.addable_slots   || []).join(',');
-  const rem     = (loc.removable_slots || []).join(',');
-  const view    = isIso ? 'i' : '2';
-  return `${s}|${view}|${slots}|${add}|${rem}`;
+  // Encodes only content state — slot occupancy, channel access, and view mode.
+  // Scale is intentionally excluded: tileCache.clear() on zoom settle handles
+  // scale invalidation, so including it here would cause pre-warmed tiles to
+  // always miss when the user zooms in from fit-view scale.
+  const slots = loc.slots.join(',');
+  const add   = (loc.addable_slots   || []).join(',');
+  const rem   = (loc.removable_slots || []).join(',');
+  const view  = isIso ? 'i' : '2';
+  return `${view}|${slots}|${add}|${rem}`;
 }
 
 // Build an OffscreenCanvas for loc, render the detail onto it.
@@ -224,6 +337,8 @@ function _onZoom() {
     zooming = false;
     tileCache.clear();   // force rebuild at new scale
     requestRender();
+    // Pre-warm tiles at the new scale so subsequent hovers are instant
+    if (scale >= LOD_DETAIL) _prewarmTiles([...locations.values()]);
   }, 50);
 }
 
@@ -302,12 +417,26 @@ function render() {
   ctx.fillStyle = '#0d1117';
   ctx.fillRect(0, 0, W, H);
 
-  const useDots = scale < LOD_DETAIL || zooming;
+  const useDots = scale < LOD_DETAIL;
   const r = Math.max(1.5, scale * 0.6);
+
+  // During zoom: only wireframes, zero per-loc work
+  if (zooming || panning) {
+    for (const key of aisleIndex.keys()) _drawAisleWireframe(key);
+    return;
+  }
 
   // Dot batching: collect positions in two arrays, draw in two path calls.
   const dotsEmpty    = [];
   const dotsOccupied = [];
+
+  // At dot-zoom: draw non-hovered aisles as wireframes, then skip their locs.
+  if (useDots && aisleIndex.size > 0) {
+    for (const key of aisleIndex.keys()) {
+      if (key === hoveredAisleKey) continue;
+      _drawAisleWireframe(key);
+    }
+  }
 
   for (const loc of locations.values()) {
     const [sx, sy] = project(...loc.coords);
@@ -315,21 +444,32 @@ function render() {
     // Viewport cull with generous margin
     if (sx < -300 || sx > W + 300 || sy < -300 || sy > H + 300) continue;
 
+    const locAisleKey = _aisleKey(loc);
+    const isHoveredAisle = locAisleKey !== null && locAisleKey === hoveredAisleKey;
+
     const occupied = loc.slots.some(s => s !== null);
 
     if (useDots) {
+      // At dot-zoom: only render individual locs for the hovered aisle
+      if (!isHoveredAisle && locAisleKey !== null) continue;
       if (occupied) dotsOccupied.push(sx, sy);
       else          dotsEmpty.push(sx, sy);
-    } else if (!loc.slot_dims) {
-      // Card-only locs have no geometry cache, draw directly
-      drawDetail(loc, sx, sy);
-    } else {
-      const tile = _getTile(loc);
-      if (tile) {
-        ctx.drawImage(tile.canvas, sx + tile.relOx, sy + tile.relOy);
-      } else {
+    } else if (isHoveredAisle) {
+      // Detail zoom, hovered aisle: full tile/detail rendering
+      if (!loc.slot_dims) {
         drawDetail(loc, sx, sy);
+      } else {
+        const tile = _getTile(loc);
+        if (tile) {
+          ctx.drawImage(tile.canvas, sx + tile.relOx, sy + tile.relOy);
+        } else {
+          drawDetail(loc, sx, sy);
+        }
       }
+    } else {
+      // Detail zoom, non-hovered: dots
+      if (occupied) dotsOccupied.push(sx, sy);
+      else          dotsEmpty.push(sx, sy);
     }
   }
 
@@ -639,6 +779,9 @@ window.addEventListener('mousemove', e => {
   panX += e.clientX - lastMX;
   panY += e.clientY - lastMY;
   lastMX = e.clientX; lastMY = e.clientY;
+  panning = true;
+  clearTimeout(_panTimer);
+  _panTimer = setTimeout(() => { panning = false; requestRender(); }, 50);
   requestRender();
 });
 window.addEventListener('mouseup', () => {
@@ -679,6 +822,9 @@ canvas.addEventListener('touchmove', e => {
     panY += e.touches[0].clientY - lastTouchY;
     lastTouchX = e.touches[0].clientX;
     lastTouchY = e.touches[0].clientY;
+    panning = true;
+    clearTimeout(_panTimer);
+    _panTimer = setTimeout(() => { panning = false; requestRender(); }, 50);
     requestRender();
   } else if (e.touches.length === 2) {
     const dx = e.touches[0].clientX - e.touches[1].clientX;
@@ -703,10 +849,47 @@ canvas.addEventListener('touchend', e => {
 }, { passive: false });
 
 // ─── Interaction: tooltip on hover ────────────────────────────────────────────
+let _aisleDebounceTimer = null;
+let _pendingAisleKey    = null;
+
+function _prewarmAisle(key) {
+  // Build tiles for every loc in this aisle synchronously during the debounce
+  // window — so the render frame after commit is pure blits, no build cost.
+  if (!key || scale < LOD_DETAIL) return;
+  const ids = aisleIndex.get(key);
+  if (!ids) return;
+  for (const id of ids) {
+    const loc = locations.get(id);
+    if (loc && loc.slot_dims) _getTile(loc);
+  }
+}
+
+function _commitAisleKey(key) {
+  if (key !== hoveredAisleKey) {
+    hoveredAisleKey = key;
+    requestRender();
+  }
+}
+
 canvas.addEventListener('mousemove', e => {
   if (dragging) { tooltipEl.style.display = 'none'; return; }
   const hit = hitTest(e.clientX, e.clientY);
-  if (!hit) { tooltipEl.style.display = 'none'; return; }
+  if (!hit) {
+    tooltipEl.style.display = 'none';
+    clearTimeout(_aisleDebounceTimer);
+    _pendingAisleKey = null;
+    if (hoveredAisleKey !== null) { hoveredAisleKey = null; requestRender(); }
+    return;
+  }
+  const newKey = _aisleKey(hit);
+  if (newKey !== hoveredAisleKey && newKey !== _pendingAisleKey) {
+    _pendingAisleKey = newKey;
+    clearTimeout(_aisleDebounceTimer);
+    // Pre-build tiles off the mouse-event thread so we don't block paint,
+    // but still finish well before the 25ms debounce fires.
+    setTimeout(() => _prewarmAisle(newKey), 0);
+    _aisleDebounceTimer = setTimeout(() => _commitAisleKey(newKey), 25);
+  }
 
   const used = hit.slots.filter(s => s !== null).length;
   let html = `<strong>${hit.id}</strong><br>`;
@@ -730,7 +913,10 @@ canvas.addEventListener('mousemove', e => {
   tooltipEl.style.left = (e.clientX + 14) + 'px';
   tooltipEl.style.top  = (e.clientY + 14) + 'px';
 });
-canvas.addEventListener('mouseleave', () => { tooltipEl.style.display = 'none'; });
+canvas.addEventListener('mouseleave', () => {
+  tooltipEl.style.display = 'none';
+  if (hoveredAisleKey !== null) { hoveredAisleKey = null; requestRender(); }
+});
 
 function hitTest(mx, my) {
   const threshold = scale < LOD_DETAIL ? 8 : 60;
@@ -765,6 +951,7 @@ function applyEvent(msg) {
   switch (type) {
     case 'location_registered': {
       locations.set(payload.id, payload);
+      _indexLoc(payload);
       for (const [cid, c] of Object.entries(payload.containers || {})) {
         containers.set(cid, c);
       }
@@ -845,6 +1032,7 @@ async function loadSnapshot() {
 
     for (const [id, loc] of Object.entries(data.locations)) {
       locations.set(id, loc);
+      _indexLoc(loc);
       for (const [cid, c] of Object.entries(loc.containers)) {
         containers.set(cid, c);
         if (c.uom) _uomIcon(c.uom);
@@ -862,6 +1050,18 @@ async function loadSnapshot() {
 
   statusEl.textContent = `${locations.size.toLocaleString()} locations loaded`;
   fitView();
+  _prewarmTiles([...locations.values()]);
+}
+
+function _prewarmTiles(locs, i = 0) {
+  if (!('requestIdleCallback' in window)) return;  // Safari fallback: skip
+  requestIdleCallback(deadline => {
+    while (i < locs.length && deadline.timeRemaining() > 2) {
+      const loc = locs[i++];
+      if (loc.slot_dims) _getTile(loc);  // only 3D locs need tiles
+    }
+    if (i < locs.length) _prewarmTiles(locs, i);
+  });
 }
 
 function connectSSE(subscriberId) {

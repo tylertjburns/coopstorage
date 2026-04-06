@@ -52,12 +52,15 @@ class Storage:
                  data_store: data.StorageDataStore = None,
                  containers: Iterable[dcs.Container] = None,
                  locs: Iterable[Location] = None,
-                 id: UniqueIdentifier = None):
+                 id: UniqueIdentifier = None,
+                 location_map_tree=None):
 
         self._lock = threading.RLock()
         self._data_store = data_store if data_store is not None else data.StorageDataStore()
 
         self._id = id or uuid.uuid4()
+        from coopstorage.location_map_tree import LocationMapTree
+        self._location_map_tree = location_map_tree if location_map_tree is not None else LocationMapTree()
         self.register_locs(locs)
         self.register_containers(containers)
 
@@ -370,6 +373,11 @@ class Storage:
     @property
     def Locations(self) -> List[Location]:
         return self._data_store.LocationsData.get()
+
+    @property
+    def LocationMapTree(self):
+        """The LocationMapTree associated with this storage, or None if not set."""
+        return self._location_map_tree
 
     @property
     def OccupiedLocs(self) -> List[Location]:

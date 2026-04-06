@@ -66,16 +66,24 @@ def snapshot_router_factory(storage: Storage) -> APIRouter:
     def get_snapshot(offset: int = 0, limit: int = 1000) -> dict:
         locs = storage.get_locs()
         containers = storage.get_containers()
+        tree = storage.LocationMapTree
         all_ids = list(locs.keys())
         total = len(all_ids)
         page_ids = all_ids[offset:offset + limit]
+
+        serialized = {}
+        for loc_id in page_ids:
+            entry = _serialize_location(locs[loc_id], containers)
+            try:
+                entry['tree_path'] = tree.get_path(loc_id)
+            except KeyError:
+                entry['tree_path'] = None
+            serialized[str(loc_id)] = entry
+
         return {
             'total': total,
             'offset': offset,
-            'locations': {
-                str(loc_id): _serialize_location(locs[loc_id], containers)
-                for loc_id in page_ids
-            }
+            'locations': serialized,
         }
 
     return router

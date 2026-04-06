@@ -10,6 +10,7 @@ from cooptools.geometry_utils import vector_utils as vec
 import coopstorage.storage.loc_load.dcs as dcs
 from coopstorage.storage.loc_load.storage import Storage
 import coopstorage.storage.loc_load.channel_processors as cps
+from coopstorage.location_map_tree import LocationMapTree
 
 @dataclass(frozen=True, slots=True)
 class BayConfig:
@@ -20,11 +21,12 @@ class BayConfig:
     shelves: int = 5
     side_designator: str = "L"  # for visualizer only; can be "L" or "R"
     
-    def locs(self, 
-            zone_idx: int, 
-            aisle_idx: int, 
+    def locs(self,
+            zone_idx: int,
+            aisle_idx: int,
             bay_idx: int,
-            bay_origin: vec.FloatVec
+            bay_origin: vec.FloatVec,
+            tree: LocationMapTree = None,
     ) -> List[Location]:
         locations = []
 
@@ -32,11 +34,21 @@ class BayConfig:
             shelf_origin = vec.add_vectors([bay_origin, (0, 0, shelf_idx * self.bay_height)])
             for loc_idx in range(self.locations_per_bay):
                 loc_coords = vec.add_vectors([shelf_origin, (loc_idx * self.loc_config.dims[0], 0, 0)])
+                loc_id = f"Zone{zone_idx}_Aisle{aisle_idx}_Bay{bay_idx}{self.side_designator}_Shelf{shelf_idx}_Loc{loc_idx}"
                 locations.append(Location(
-                    id=f"Zone{zone_idx}_Aisle{aisle_idx}_Bay{bay_idx}{self.side_designator}_Shelf{shelf_idx}_Loc{loc_idx}",
+                    id=loc_id,
                     location_meta=self.loc_config,
-                coords=loc_coords,
-            ))
+                    coords=loc_coords,
+                ))
+                if tree is not None:
+                    tree.register(
+                        loc_id,
+                        zone=zone_idx,
+                        aisle=aisle_idx,
+                        bay=f"{bay_idx}{self.side_designator}",
+                        shelf=shelf_idx,
+                        loc=loc_idx,
+                    )
 
         return locations
 
@@ -55,16 +67,16 @@ class AisleConfig:
             width += self.right_bay_config.loc_config.dims[1]
         return width
 
-    def locs(self, zone_idx: int, aisle_idx: int, aisle_origin: vec.FloatVec) -> List[Location]:
+    def locs(self, zone_idx: int, aisle_idx: int, aisle_origin: vec.FloatVec, tree: LocationMapTree = None) -> List[Location]:
         locations = []
         for bay_idx in range(self.bays):
             if self.left_bay_config is not None:
                 bay_origin = vec.add_vectors([aisle_origin, (bay_idx * (self.left_bay_config.loc_config.dims[0] * self.left_bay_config.locations_per_bay + self.left_bay_config.inter_bay_spacing), self.aisle_width + self.left_bay_config.loc_config.dims[1], 0)])
-                locations.extend(self.left_bay_config.locs(zone_idx, aisle_idx, bay_idx, bay_origin))
+                locations.extend(self.left_bay_config.locs(zone_idx, aisle_idx, bay_idx, bay_origin, tree=tree))
 
             if self.right_bay_config is not None:
                 bay_origin = vec.add_vectors([aisle_origin, (bay_idx * (self.right_bay_config.loc_config.dims[0] * self.right_bay_config.locations_per_bay + self.right_bay_config.inter_bay_spacing), 0, 0)])
-                locations.extend(self.right_bay_config.locs(zone_idx, aisle_idx, bay_idx, bay_origin))
+                locations.extend(self.right_bay_config.locs(zone_idx, aisle_idx, bay_idx, bay_origin, tree=tree))
 
         return locations
     
@@ -75,25 +87,26 @@ class ZoneConfig:
     inter_aisle_spacing: float = 20.0
     origin: vec.FloatVec = (0.0, 0.0, 0.0)
 
-    def locs(self) -> List[Location]:
+    def locs(self, zone_idx: int = 0, tree: LocationMapTree = None) -> List[Location]:
         locations = []
         for aisle_idx in range(self.aisles):
-            aisle_origin = vec.add_vectors([self.origin, (0, aisle_idx * (self.inter_aisle_spacing + self.aisle_config.net_aisle_width()) , 0)])
-            locations.extend(self.aisle_config.locs(0, aisle_idx, aisle_origin))
+            aisle_origin = vec.add_vectors([self.origin, (0, aisle_idx * (self.inter_aisle_spacing + self.aisle_config.net_aisle_width()), 0)])
+            locations.extend(self.aisle_config.locs(zone_idx, aisle_idx, aisle_origin, tree=tree))
         return locations
 
 @dataclass(frozen=True, slots=True)
 class StorageConfig:
     zones_config: Iterable[ZoneConfig] = field(default_factory=list)
 
-    def locs(self) -> List[Location]:
+    def locs(self, tree: LocationMapTree = None) -> List[Location]:
         locations = []
         for zone_idx, zone_config in enumerate(self.zones_config):
-            locations.extend(zone_config.locs())
+            locations.extend(zone_config.locs(zone_idx=zone_idx, tree=tree))
         return locations
-    
+
     def storage(self) -> Storage:
-        return Storage(locs=self.locs())
+        tree = LocationMapTree()
+        return Storage(locs=self.locs(tree=tree), location_map_tree=tree)
 
 if __name__ == "__main__":
     from pprint import pprint
