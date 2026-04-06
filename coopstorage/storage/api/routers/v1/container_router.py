@@ -39,4 +39,12 @@ def container_router_factory(storage: Storage):
             raise HTTPException(status_code=404, detail=f"Container '{container_id}' not found")
         return containers[container_id]
 
+    @container_router.delete("/containers")
+    def delete_all_containers():
+        """Remove all containers from storage, leaving locations intact."""
+        count = len(storage.get_containers())
+        storage._data_store.ContainersData.clear()
+        logger.info("Cleared all containers (%d removed)", count)
+        return {"cleared": count}
+
     return container_router
