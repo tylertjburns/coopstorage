@@ -14,7 +14,6 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-import coopstorage.storage.loc_load.channel_processors as cps
 import coopstorage.storage.loc_load.dcs as dcs
 import coopstorage.storage.loc_load.evaluators as evaluators
 from coopstorage.storage.loc_load.qualifiers import ContainerQualifier, LocationQualifier
@@ -30,25 +29,14 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SimulationConfig:
     """Config for the continuous randomised add/move/remove simulation."""
-    locs_per_type:     int   = 3
-    location_capacity: int   = 5
-    min_fill_pct:      float = 0.15
-    max_fill_pct:      float = 0.85
-    add_weight:        float = 0.45
-    move_weight:       float = 0.40
-    remove_weight:     float = 0.15
-
-    @property
-    def num_locations(self) -> int:
-        return self.locs_per_type * len(cps.ChannelProcessorType)
-
-    @property
-    def max_concurrent(self) -> int:
-        return self.num_locations * self.location_capacity
+    min_fill_pct:  float = 0.15
+    max_fill_pct:  float = 0.85
+    add_weight:    float = 0.45
+    move_weight:   float = 0.40
+    remove_weight: float = 0.15
 
 
-SIM_SMALL = SimulationConfig()
-SIM_LARGE = SimulationConfig(locs_per_type=10)
+SIM_DEFAULT = SimulationConfig()
 
 
 def run_simulation(
@@ -63,20 +51,21 @@ def run_simulation(
 
     Args:
         storage:        A pre-built Storage instance to operate on.
-        cfg:            SimulationConfig; defaults to SIM_SMALL.
+        cfg:            SimulationConfig; defaults to SIM_DEFAULT.
         delay_provider: Optional callable returning seconds to sleep after each op.
         stop_event:     threading.Event that signals the loop to exit cleanly.
         ops_counter:    Optional single-element list [n] incremented each op so
                         callers can read total ops without a lock.
     """
     if cfg is None:
-        cfg = SIM_SMALL
+        cfg = SIM_DEFAULT
     if stop_event is None:
         stop_event = threading.Event()
     if ops_counter is None:
         ops_counter = [0]
 
     container_counter = 0
+    max_concurrent    = sum(loc.Capacity for loc in storage.Locations.values())
     start             = time.perf_counter()
     last_status       = start
     STATUS_INTERVAL   = 5.0
@@ -166,7 +155,7 @@ def run_simulation(
 
     while not stop_event.is_set():
         count = _current_count()
-        fill  = count / cfg.max_concurrent if cfg.max_concurrent > 0 else 0
+        fill  = count / max_concurrent if max_concurrent > 0 else 0
 
         if fill < cfg.min_fill_pct:
             op = 'add'
@@ -199,7 +188,7 @@ def run_simulation(
             rate    = ops_counter[0] / elapsed if elapsed > 0 else 0
             logger.info(
                 "sim  ops=%d  concurrent=%d/%d  fill=%.0f%%  elapsed=%.0fs  rate=%.0f/s",
-                ops_counter[0], count, cfg.max_concurrent, fill * 100, elapsed, rate,
+                ops_counter[0], count, max_concurrent, fill * 100, elapsed, rate,
             )
             last_status = now
 
@@ -209,9 +198,8 @@ def run_simulation(
 @dataclass
 class ShowcaseConfig:
     """One location per processor type, all operated in lock-step each iteration."""
-    location_capacity: int   = 5
-    min_fill_pct:      float = 0.20
-    max_fill_pct:      float = 0.80
+    min_fill_pct: float = 0.20
+    max_fill_pct: float = 0.80
 
 
 SHOWCASE = ShowcaseConfig()

@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 class SimulationConfigAPI(BaseModel):
     mode: str = "random"                # "random" or "showcase"
-    locs_per_type: int = 3
-    location_capacity: int = 5
     min_fill_pct: float = 0.15
     max_fill_pct: float = 0.85
     add_weight: float = 0.45
@@ -49,7 +47,6 @@ def simulate_router_factory(storage: Storage) -> APIRouter:
 
         if body.mode == "showcase":
             cfg = ShowcaseConfig(
-                location_capacity=body.location_capacity,
                 min_fill_pct=body.min_fill_pct,
                 max_fill_pct=body.max_fill_pct,
             )
@@ -58,8 +55,6 @@ def simulate_router_factory(storage: Storage) -> APIRouter:
                           stop_event=_sim_stop, ops_counter=_sim_ops)
         else:
             cfg = SimulationConfig(
-                locs_per_type=body.locs_per_type,
-                location_capacity=body.location_capacity,
                 min_fill_pct=body.min_fill_pct,
                 max_fill_pct=body.max_fill_pct,
                 add_weight=body.add_weight,

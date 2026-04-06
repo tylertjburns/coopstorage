@@ -9,7 +9,6 @@ Usage
     python run_viz_benchmark.py                         # SMALL benchmark, 20ms delay
     python run_viz_benchmark.py --config medium         # MEDIUM benchmark
     python run_viz_benchmark.py --mode sim              # continuous randomized simulation
-    python run_viz_benchmark.py --mode sim --config large
     python run_viz_benchmark.py --mode showcase         # one of each processor type, lock-step
     python run_viz_benchmark.py --delay 0.05            # 50ms between ops
     python run_viz_benchmark.py --no-browser            # don't auto-open browser
@@ -31,19 +30,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from tests.test_storage_benchmark import (
     BenchmarkConfig,
-    MINI,
-    SMALL,
-    MEDIUM,
-    LARGE,
-    SimulationConfig,
-    SIM_SMALL,
-    SIM_LARGE,
-    _build_storage,
+    MINI, SMALL, MEDIUM, LARGE,
     run_benchmark,
-    run_simulation,
-    ShowcaseConfig,
-    _build_showcase_storage,
-    run_showcase_sim,
+)
+from coopstorage.simulation import (
+    SIM_DEFAULT, SHOWCASE,
+    run_simulation, run_showcase_sim,
+)
+from coopstorage.storage_generators import (
+    build_all_processor_storage,
+    build_showcase_storage,
 )
 from coopstorage.viz_helper import start_visualizer
 
@@ -53,13 +49,6 @@ _CONFIGS: dict[str, BenchmarkConfig] = {
     "small":  SMALL,
     "medium": MEDIUM,
     "large":  LARGE,
-}
-
-_SIM_CONFIGS: dict[str, SimulationConfig] = {
-    "mini":   SIM_SMALL,
-    "small":  SIM_SMALL,
-    "medium": SIM_LARGE,
-    "large":  SIM_LARGE,
 }
 
 
@@ -90,30 +79,25 @@ def main():
     viz_url = f"http://{args.host}:{args.port}/static/index.html"
 
     if args.mode == "sim":
-        sim_cfg = _SIM_CONFIGS[args.config]
-        # Build storage sized for the sim config (uses same _build_storage with compatible fields)
-        from tests.test_storage_benchmark import BenchmarkConfig as _BC
-        build_cfg = _BC(
-            locs_per_type=sim_cfg.locs_per_type,
-            location_capacity=sim_cfg.location_capacity,
-            total_to_add=0,
-        )
-        storage = _build_storage(build_cfg)
+        storage = build_all_processor_storage()
         print(f"\n  CoopStorage Visualizer Simulation (continuous)")
-        print(f"  config={args.config}  locations={sim_cfg.num_locations:,}"
-              f"  delay={args.delay*1000:.0f}ms/op")
+        print(f"  locations={len(storage.Locations):,}  delay={args.delay*1000:.0f}ms/op")
         print(f"  visualizer -> {viz_url}\n")
     elif args.mode == "benchmark":
         cfg = _CONFIGS[args.config]
-        storage = _build_storage(cfg)
+        storage = build_all_processor_storage(
+            locs_per_type=cfg.locs_per_type,
+            location_capacity=cfg.location_capacity,
+        )
         print(f"\n  CoopStorage Visualizer Benchmark")
         print(f"  config={args.config}  locations={cfg.num_locations:,}"
               f"  ops={cfg.total_to_add:,}  delay={args.delay*1000:.0f}ms/op")
         print(f"  visualizer -> {viz_url}\n")
     elif args.mode == "showcase":
-        print(f"\n  CoopStorage Visualizer Showcase (no workload, just explore the UI)")
+        storage = build_showcase_storage()
+        print(f"\n  CoopStorage Visualizer Showcase (lock-step per processor type)")
+        print(f"  locations={len(storage.Locations):,}  delay={args.delay*1000:.0f}ms/op")
         print(f"  visualizer -> {viz_url}\n")
-        storage = _build_showcase_storage()
 
     # 1. Start the API server and (optionally) open the browser
     server_thread = start_visualizer(
@@ -132,7 +116,7 @@ def main():
             stop_event = threading.Event()
             run_simulation(
                 storage=storage,
-                cfg=sim_cfg,
+                cfg=SIM_DEFAULT,
                 delay_provider=lambda: args.delay,
                 stop_event=stop_event,
             )
@@ -152,7 +136,7 @@ def main():
             stop_event = threading.Event()
             run_showcase_sim(
                 storage=storage,
-                cfg=ShowcaseConfig(),
+                cfg=SHOWCASE,
                 delay_provider=lambda: args.delay,
                 stop_event=stop_event,
             )
