@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class BayConfigAPI(BaseModel):
     loc_dims: List[float] = [10.0, 10.0, 5.0]
-    channel_processor_type: str = "AllAvailable"
+    channel_processor_type: str = "AllAvailableChannelProcessor"
     capacity: int = 1
     locations_per_bay: int = 2
     inter_bay_spacing: float = 2.0
