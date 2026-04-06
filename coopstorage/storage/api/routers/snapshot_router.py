@@ -63,13 +63,18 @@ def snapshot_router_factory(storage: Storage) -> APIRouter:
     router = APIRouter()
 
     @router.get("/snapshot")
-    def get_snapshot() -> dict:
+    def get_snapshot(offset: int = 0, limit: int = 1000) -> dict:
         locs = storage.get_locs()
         containers = storage.get_containers()
+        all_ids = list(locs.keys())
+        total = len(all_ids)
+        page_ids = all_ids[offset:offset + limit]
         return {
+            'total': total,
+            'offset': offset,
             'locations': {
-                str(loc_id): _serialize_location(loc, containers)
-                for loc_id, loc in locs.items()
+                str(loc_id): _serialize_location(locs[loc_id], containers)
+                for loc_id in page_ids
             }
         }
 

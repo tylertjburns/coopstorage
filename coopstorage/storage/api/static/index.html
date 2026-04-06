@@ -131,9 +131,105 @@ function _refreshUomLegend() {
   }
 }
 
+// ─── Tile cache ───────────────────────────────────────────────────────────────
+// Each location's 3D detail is rendered once into an OffscreenCanvas and blitted
+// each frame. A tile is invalidated when slot state, addable/removable positions,
+// or the view mode changes. During zoom gestures we skip the cache entirely to
+// avoid rebuilding stale tiles on every frame.
+const tileCache = new Map();  // loc.id → { key, canvas, ox, oy }
+let   zooming   = false;
+let   _zoomTimer = null;
+
+function _locStateKey(loc) {
+  // Encode everything that affects the tile's pixel content.
+  // scale is intentionally NOT included — tiles are drawn in world coords
+  // and blitted with ctx.drawImage at the right screen position.
+  // But: tiles ARE scale-dependent (pixel size of slot geometry changes).
+  // So we include scale quantised to 2dp to re-use across tiny float changes.
+  const s = scale.toFixed(2);
+  const slots   = loc.slots.join(',');
+  const add     = (loc.addable_slots   || []).join(',');
+  const rem     = (loc.removable_slots || []).join(',');
+  const view    = isIso ? 'i' : '2';
+  return `${s}|${view}|${slots}|${add}|${rem}`;
+}
+
+// Build an OffscreenCanvas for loc, render the detail onto it.
+// Offsets are stored relative to the location's own projected screen position
+// so that panning (which shifts all projected points equally) never invalidates tiles.
+function _buildTile(loc) {
+  const [wx, wy, wz] = loc.coords;
+  const [dx, dy, dz] = loc.meta.dims;
+
+  // Project with pan=0 so offsets are pan-independent.
+  const savedPanX = panX, savedPanY = panY;
+  panX = 0; panY = 0;
+
+  const corners = [
+    [wx,    wy,    wz],    [wx+dx, wy,    wz],
+    [wx,    wy+dy, wz],    [wx+dx, wy+dy, wz],
+    [wx,    wy,    wz+dz], [wx+dx, wy,    wz+dz],
+    [wx,    wy+dy, wz+dz], [wx+dx, wy+dy, wz+dz],
+  ];
+  const spts = corners.map(c => project(...c));
+  const margin = Math.max(60, scale * 4);
+  const minSx = Math.min(...spts.map(p => p[0])) - margin;
+  const minSy = Math.min(...spts.map(p => p[1])) - margin;
+  const maxSx = Math.max(...spts.map(p => p[0])) + margin;
+  const maxSy = Math.max(...spts.map(p => p[1])) + margin;
+
+  // Anchor: location centre in pan=0 space
+  const [ancX, ancY] = project(...loc.coords);
+  // relO* = offset from projected centre to tile top-left (pan-independent)
+  const relOx = minSx - ancX;
+  const relOy = minSy - ancY;
+
+  panX = savedPanX; panY = savedPanY;
+
+  const tw = Math.ceil(maxSx - minSx);
+  const th = Math.ceil(maxSy - minSy);
+  if (tw <= 0 || th <= 0) return null;
+
+  const osc  = new OffscreenCanvas(tw, th);
+  const octx = osc.getContext('2d');
+
+  // Redirect draw calls to offscreen canvas, shift origin to tile top-left.
+  const savedCtx = ctx;
+  ctx  = octx;   // eslint-disable-line no-global-assign
+  panX = -minSx;
+  panY = -minSy;
+
+  _drawDetail3D(loc);
+
+  panX = savedPanX;
+  panY = savedPanY;
+  ctx  = savedCtx;  // eslint-disable-line no-global-assign
+
+  return { key: _locStateKey(loc), canvas: osc, relOx, relOy };
+}
+
+function _getTile(loc) {
+  const key = _locStateKey(loc);
+  const cached = tileCache.get(loc.id);
+  if (cached && cached.key === key) return cached;
+  const tile = _buildTile(loc);
+  if (tile) tileCache.set(loc.id, tile);
+  return tile;
+}
+
+function _onZoom() {
+  zooming = true;
+  clearTimeout(_zoomTimer);
+  _zoomTimer = setTimeout(() => {
+    zooming = false;
+    tileCache.clear();   // force rebuild at new scale
+    requestRender();
+  }, 50);
+}
+
 // ─── Canvas setup ─────────────────────────────────────────────────────────────
 const canvas  = document.getElementById('canvas');
-const ctx     = canvas.getContext('2d');
+let   ctx     = canvas.getContext('2d');
 const statusEl  = document.getElementById('status');
 const tooltipEl = document.getElementById('tooltip');
 let W = 0, H = 0;
@@ -206,6 +302,13 @@ function render() {
   ctx.fillStyle = '#0d1117';
   ctx.fillRect(0, 0, W, H);
 
+  const useDots = scale < LOD_DETAIL || zooming;
+  const r = Math.max(1.5, scale * 0.6);
+
+  // Dot batching: collect positions in two arrays, draw in two path calls.
+  const dotsEmpty    = [];
+  const dotsOccupied = [];
+
   for (const loc of locations.values()) {
     const [sx, sy] = project(...loc.coords);
 
@@ -214,24 +317,38 @@ function render() {
 
     const occupied = loc.slots.some(s => s !== null);
 
-    if (scale < LOD_DETAIL) {
-      drawDot(sx, sy, occupied);
-    } else {
+    if (useDots) {
+      if (occupied) dotsOccupied.push(sx, sy);
+      else          dotsEmpty.push(sx, sy);
+    } else if (!loc.slot_dims) {
+      // Card-only locs have no geometry cache, draw directly
       drawDetail(loc, sx, sy);
+    } else {
+      const tile = _getTile(loc);
+      if (tile) {
+        ctx.drawImage(tile.canvas, sx + tile.relOx, sy + tile.relOy);
+      } else {
+        drawDetail(loc, sx, sy);
+      }
     }
   }
-}
 
-function drawDot(sx, sy, occupied) {
-  const r = Math.max(1.5, scale * 0.6);
-  ctx.beginPath();
-  ctx.arc(sx, sy, r, 0, Math.PI * 2);
-  ctx.fillStyle = occupied ? '#238636' : '#21262d';
-  ctx.fill();
-  if (occupied) {
-    ctx.strokeStyle = '#2ea043';
-    ctx.lineWidth = 0.5;
-    ctx.stroke();
+  // Flush dot batches
+  // rect() is significantly cheaper than arc() for large batches
+  const d = r * 2;
+  if (dotsEmpty.length > 0) {
+    ctx.beginPath();
+    for (let i = 0; i < dotsEmpty.length; i += 2)
+      ctx.rect(dotsEmpty[i] - r, dotsEmpty[i+1] - r, d, d);
+    ctx.fillStyle = '#21262d';
+    ctx.fill();
+  }
+  if (dotsOccupied.length > 0) {
+    ctx.beginPath();
+    for (let i = 0; i < dotsOccupied.length; i += 2)
+      ctx.rect(dotsOccupied[i] - r, dotsOccupied[i+1] - r, d, d);
+    ctx.fillStyle = '#238636';
+    ctx.fill();
   }
 }
 
@@ -535,6 +652,7 @@ canvas.addEventListener('wheel', e => {
   panX = e.clientX - (e.clientX - panX) * factor;
   panY = e.clientY - (e.clientY - panY) * factor;
   scale *= factor;
+  _onZoom();
   requestRender();
 }, { passive: false });
 
@@ -573,6 +691,7 @@ canvas.addEventListener('touchmove', e => {
       panX = cx - (cx - panX) * factor;
       panY = cy - (cy - panY) * factor;
       scale *= factor;
+      _onZoom();
       requestRender();
     }
     lastPinchDist = dist;
@@ -614,25 +733,26 @@ canvas.addEventListener('mousemove', e => {
 canvas.addEventListener('mouseleave', () => { tooltipEl.style.display = 'none'; });
 
 function hitTest(mx, my) {
-  // Iterate in reverse so topmost-rendered location wins
-  const locs = [...locations.values()].reverse();
-  for (const loc of locs) {
+  const threshold = scale < LOD_DETAIL ? 8 : 60;
+  let hit = null;
+  for (const loc of locations.values()) {
     const [sx, sy] = project(...loc.coords);
-    const threshold = scale < LOD_DETAIL ? 8 : 60;
-    if (Math.abs(mx - sx) < threshold && Math.abs(my - sy) < threshold) return loc;
+    if (Math.abs(mx - sx) < threshold && Math.abs(my - sy) < threshold) hit = loc;
   }
-  return null;
+  return hit;
 }
 
 // ─── View toggle ──────────────────────────────────────────────────────────────
 document.getElementById('btn-iso').addEventListener('click', () => {
   isIso = true;
+  tileCache.clear();
   document.getElementById('btn-iso').classList.add('active');
   document.getElementById('btn-2d').classList.remove('active');
   fitView();
 });
 document.getElementById('btn-2d').addEventListener('click', () => {
   isIso = false;
+  tileCache.clear();
   document.getElementById('btn-2d').classList.add('active');
   document.getElementById('btn-iso').classList.remove('active');
   fitView();
@@ -672,6 +792,7 @@ function applyEvent(msg) {
         if (from_addable_slots  !== undefined) loc.addable_slots  = from_addable_slots;
         if (from_removable_slots !== undefined) loc.removable_slots = from_removable_slots;
         delete loc.containers[container_id];
+        tileCache.delete(from_loc_id);
       }
       if (to_loc_id && locations.has(to_loc_id)) {
         const loc = locations.get(to_loc_id);
@@ -680,6 +801,7 @@ function applyEvent(msg) {
         if (to_removable_slots !== undefined) loc.removable_slots = to_removable_slots;
         const c = containers.get(container_id);
         if (c) loc.containers[container_id] = c;
+        tileCache.delete(to_loc_id);
       }
       break;
     }
@@ -691,6 +813,7 @@ function applyEvent(msg) {
       if (loc_id && locations.has(loc_id)) {
         const c = locations.get(loc_id).containers[container_id];
         if (c) c.contents = contents;
+        tileCache.delete(loc_id);
       }
       break;
     }
@@ -706,19 +829,38 @@ function applyEvent(msg) {
 }
 
 // ─── Data loading & SSE connection ────────────────────────────────────────────
+const SNAPSHOT_PAGE = 1000;
+
 async function loadSnapshot() {
+  let offset = 0;
+  let total  = null;
+
   statusEl.textContent = 'Loading snapshot…';
-  const res = await fetch('/snapshot');
-  if (!res.ok) throw new Error(`Snapshot HTTP ${res.status}`);
-  const data = await res.json();
-  for (const [id, loc] of Object.entries(data.locations)) {
-    locations.set(id, loc);
-    for (const [cid, c] of Object.entries(loc.containers)) {
-      containers.set(cid, c);
-      if (c.uom) _uomIcon(c.uom);
+
+  do {
+    const res = await fetch(`/snapshot?offset=${offset}&limit=${SNAPSHOT_PAGE}`);
+    if (!res.ok) throw new Error(`Snapshot HTTP ${res.status}`);
+    const data = await res.json();
+    total = data.total;
+
+    for (const [id, loc] of Object.entries(data.locations)) {
+      locations.set(id, loc);
+      for (const [cid, c] of Object.entries(loc.containers)) {
+        containers.set(cid, c);
+        if (c.uom) _uomIcon(c.uom);
+      }
     }
-  }
-  statusEl.textContent = `${locations.size} locations loaded`;
+
+    offset += SNAPSHOT_PAGE;
+    statusEl.textContent = `Loading… ${locations.size.toLocaleString()} / ${total.toLocaleString()}`;
+    requestRender();
+
+    // Yield to the browser for a full frame between pages
+    await new Promise(r => requestAnimationFrame(r));
+
+  } while (offset < total);
+
+  statusEl.textContent = `${locations.size.toLocaleString()} locations loaded`;
   fitView();
 }
 
