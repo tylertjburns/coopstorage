@@ -59,7 +59,7 @@ def location_router_factory(storage: Storage) -> APIRouter:
     @location_router.get("/locations")
     def get_locations() -> Dict[str, dict]:
         locs = storage.get_locs()
-        return {str(k): v.to_jsonable_dict() for k, v in locs.items()}
+        return {str(k): Location.to_jsonable_dict(v) for k, v in locs.items()}
 
     @location_router.put("/locations")
     def put_locations(body: LocationsRequestAPIWrapper):
@@ -88,7 +88,7 @@ def location_router_factory(storage: Storage) -> APIRouter:
         locs = storage.get_locs()
         if location_id not in locs:
             raise HTTPException(status_code=404, detail=f"Location '{location_id}' not found")
-        return locs[location_id].to_jsonable_dict()
+        return Location.to_jsonable_dict(locs[location_id])
 
     @location_router.put("/locations/eg")
     def put_eg_locations():

@@ -108,6 +108,55 @@ class StorageConfig:
         tree = LocationMapTree()
         return Storage(locs=self.locs(tree=tree), location_map_tree=tree)
 
+def build_all_processor_storage(
+    locs_per_type: int = 3,
+    location_capacity: int = 5,
+    loc_spacing: float = 15.0,
+) -> Storage:
+    """Build a Storage with N locations per channel processor type, arranged in
+    parallel rows — one row per processor type."""
+    from coopstorage.storage.loc_load.location import Location
+    locations = [
+        Location(
+            id=f"{cp.name}_{i:04d}",
+            location_meta=dcs.LocationMeta(
+                dims=(10, 10, 5),
+                channel_processor=cp.value,
+                capacity=location_capacity,
+            ),
+            coords=(type_idx * loc_spacing, i * loc_spacing, 0),
+        )
+        for type_idx, cp in enumerate(cps.ChannelProcessorType)
+        for i in range(locs_per_type)
+    ]
+    return Storage(locs=locations)
+
+
+def build_showcase_storage(
+    location_capacity: int = 5,
+    loc_spacing: float = 15.0,
+) -> Storage:
+    """Build a Storage with exactly one location per channel processor type,
+    arranged in the smallest square grid that fits all types."""
+    import math
+    from coopstorage.storage.loc_load.location import Location
+    n    = len(cps.ChannelProcessorType)
+    cols = math.ceil(math.sqrt(n))
+    locations = [
+        Location(
+            id=cp_type.name,
+            location_meta=dcs.LocationMeta(
+                dims=(10, 10, 5),
+                channel_processor=cp_type.value,
+                capacity=location_capacity,
+            ),
+            coords=((idx % cols) * loc_spacing, (idx // cols) * loc_spacing, 0),
+        )
+        for idx, cp_type in enumerate(cps.ChannelProcessorType)
+    ]
+    return Storage(locs=locations)
+
+
 if __name__ == "__main__":
     from pprint import pprint
     from coopstorage.viz_helper import start_visualizer
