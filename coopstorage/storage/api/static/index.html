@@ -297,7 +297,23 @@ function _refreshUomLegend() {
 // each frame. A tile is invalidated when slot state, addable/removable positions,
 // or the view mode changes. During zoom gestures we skip the cache entirely to
 // avoid rebuilding stale tiles on every frame.
-const tileCache = new Map();  // loc.id → { key, canvas, ox, oy }
+const TILE_CACHE_MAX = 500;
+const tileCache = new Map();  // loc.id → { key, canvas, relOx, relOy }  (LRU — capped at TILE_CACHE_MAX)
+
+function _tileCacheSet(id, tile) {
+  if (tileCache.has(id)) tileCache.delete(id);       // refresh insertion order
+  tileCache.set(id, tile);
+  if (tileCache.size > TILE_CACHE_MAX) {
+    tileCache.delete(tileCache.keys().next().value);  // evict oldest
+  }
+}
+
+function _tileCacheGet(id) {
+  if (!tileCache.has(id)) return undefined;
+  const tile = tileCache.get(id);
+  tileCache.delete(id); tileCache.set(id, tile);     // refresh insertion order
+  return tile;
+}
 let   zooming   = false;
 let   panning   = false;
 let   _zoomTimer = null;
@@ -371,10 +387,10 @@ function _buildTile(loc) {
 
 function _getTile(loc) {
   const key = _locStateKey(loc);
-  const cached = tileCache.get(loc.id);
+  const cached = _tileCacheGet(loc.id);
   if (cached && cached.key === key) return cached;
   const tile = _buildTile(loc);
-  if (tile) tileCache.set(loc.id, tile);
+  if (tile) _tileCacheSet(loc.id, tile);
   return tile;
 }
 
@@ -396,7 +412,25 @@ let   ctx     = canvas.getContext('2d');
 const statusEl  = document.getElementById('status');
 const tooltipEl = document.getElementById('tooltip');
 let W = 0, H = 0;
-let renderQueued = false;
+let renderQueued    = false;
+let _renderThrottle = null;
+const RENDER_THROTTLE_MS = 25;
+
+// ─── Event queue — drain once per render, not once per SSE message ────────────
+const _eventQueue = [];
+let   _drainQueued = false;
+
+function _queueEvent(msg) {
+  _eventQueue.push(msg);
+  if (!_drainQueued) {
+    _drainQueued = true;
+    requestAnimationFrame(() => {
+      _drainQueued = false;
+      const batch = _eventQueue.splice(0);
+      for (const m of batch) applyEvent(m);
+    });
+  }
+}
 
 function resize() {
   W = canvas.width  = window.innerWidth;
@@ -454,10 +488,14 @@ const LOD_DETAIL = 3;
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
 function requestRender() {
-  if (!renderQueued) {
-    renderQueued = true;
-    requestAnimationFrame(() => { renderQueued = false; render(); });
-  }
+  if (_renderThrottle) return;
+  _renderThrottle = setTimeout(() => {
+    _renderThrottle = null;
+    if (!renderQueued) {
+      renderQueued = true;
+      requestAnimationFrame(() => { renderQueued = false; render(); });
+    }
+  }, RENDER_THROTTLE_MS);
 }
 
 function render() {
@@ -1037,6 +1075,9 @@ function applyEvent(msg) {
         const c = containers.get(container_id);
         if (c) loc.containers[container_id] = c;
         tileCache.delete(to_loc_id);
+      } else if (!to_loc_id) {
+        // delete_container_on_transfer — container is gone, clean up global map
+        containers.delete(container_id);
       }
       break;
     }
@@ -1053,9 +1094,16 @@ function applyEvent(msg) {
       break;
     }
     case 'container_removed': {
-      containers.delete(payload.id);
-      for (const loc of locations.values()) {
-        delete loc.containers[payload.id];
+      const cid = payload.id;
+      containers.delete(cid);
+      // Use loc_id from payload when available (O(1)); fall back to scan only if absent.
+      if (payload.loc_id && locations.has(payload.loc_id)) {
+        delete locations.get(payload.loc_id).containers[cid];
+        tileCache.delete(payload.loc_id);
+      } else {
+        for (const loc of locations.values()) {
+          if (cid in loc.containers) { delete loc.containers[cid]; tileCache.delete(loc.id); break; }
+        }
       }
       break;
     }
@@ -1101,14 +1149,18 @@ async function loadSnapshot() {
   _prewarmTiles([...locations.values()]);
 }
 
-function _prewarmTiles(locs, i = 0) {
+let _prewarmGeneration = 0;  // incremented to cancel in-flight prewarms
+
+function _prewarmTiles(locs, i = 0, gen = null) {
   if (!('requestIdleCallback' in window)) return;  // Safari fallback: skip
+  if (gen === null) gen = ++_prewarmGeneration;    // new caller starts a new generation
   requestIdleCallback(deadline => {
+    if (gen !== _prewarmGeneration) return;        // cancelled by a newer prewarm
     while (i < locs.length && deadline.timeRemaining() > 2) {
       const loc = locs[i++];
-      if (loc.slot_dims) _getTile(loc);  // only 3D locs need tiles
+      if (loc.slot_dims) _getTile(loc);
     }
-    if (i < locs.length) _prewarmTiles(locs, i);
+    if (i < locs.length) _prewarmTiles(locs, i, gen);
   });
 }
 
@@ -1116,7 +1168,7 @@ function connectSSE(subscriberId) {
   const es = new EventSource(`/v1/events/${subscriberId}`);
 
   es.addEventListener('message', e => {
-    applyEvent(JSON.parse(e.data));
+    _queueEvent(JSON.parse(e.data));
     statusEl.textContent = `${locations.size} locations · live`;
   });
 
