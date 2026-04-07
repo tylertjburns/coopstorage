@@ -11,8 +11,17 @@ from coopstorage.simulation import (
     SimulationConfig, ShowcaseConfig,
     run_simulation, run_showcase_sim,
 )
+import coopstorage.storage.loc_load.evaluators as evaluators
 
 logger = logging.getLogger(__name__)
+
+
+_EVALUATORS = {
+    "fewest_containers":            evaluators.fewest_containers,
+    "random_score":                 evaluators.random_score,
+    "max_available_capacity_pct":   evaluators.max_available_capacity_percentage,
+    "least_available_capacity_pct": evaluators.least_available_capacity_percentage,
+}
 
 
 class SimulationConfigAPI(BaseModel):
@@ -23,6 +32,7 @@ class SimulationConfigAPI(BaseModel):
     move_weight: float = 0.40
     remove_weight: float = 0.15
     delay_ms: float = 0.0               # ms to sleep between ops (0 = as fast as possible)
+    dest_loc_evaluator: str = "fewest_containers"  # key into _EVALUATORS
 
 
 # Module-level simulation state — one simulation at a time per server instance.
@@ -79,6 +89,12 @@ def simulate_router_factory(storage: Storage, event_bus: StorageEventBus = None)
             kwargs = dict(storage=storage, cfg=cfg, delay_provider=delay_fn,
                           stop_event=_sim_stop, ops_counter=_sim_ops)
         else:
+            if body.dest_loc_evaluator not in _EVALUATORS:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Unknown dest_loc_evaluator '{body.dest_loc_evaluator}'. "
+                           f"Valid options: {list(_EVALUATORS)}"
+                )
             cfg = SimulationConfig(
                 min_fill_pct=body.min_fill_pct,
                 max_fill_pct=body.max_fill_pct,
@@ -88,7 +104,8 @@ def simulate_router_factory(storage: Storage, event_bus: StorageEventBus = None)
             )
             target = run_simulation
             kwargs = dict(storage=storage, cfg=cfg, delay_provider=delay_fn,
-                          stop_event=_sim_stop, ops_counter=_sim_ops)
+                          stop_event=_sim_stop, ops_counter=_sim_ops,
+                          dest_loc_evaluator=_EVALUATORS[body.dest_loc_evaluator])
 
         _sim_thread = threading.Thread(target=target, kwargs=kwargs, daemon=True)
         _sim_thread.start()

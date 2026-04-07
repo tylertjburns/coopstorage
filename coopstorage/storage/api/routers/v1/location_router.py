@@ -94,14 +94,7 @@ def location_router_factory(storage: Storage) -> APIRouter:
     @location_router.delete("/locations")
     def delete_all_locations():
         """Remove all locations and containers from storage."""
-        loc_count = len(storage.get_locs())
-        con_count = len(storage.get_containers())
-        storage._data_store.clear()
-        storage.LocationMapTree._labels.clear()
-        storage.LocationMapTree._inverted.clear()
-        storage.LocationMapTree._levels_order.clear()
-        logger.info("Cleared all locations (%d) and containers (%d)", loc_count, con_count)
-        return {"cleared_locations": loc_count, "cleared_containers": con_count}
+        return storage.clear_all()
 
     @location_router.put("/locations/eg")
     def put_eg_locations():

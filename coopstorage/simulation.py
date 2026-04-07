@@ -45,17 +45,20 @@ def run_simulation(
     delay_provider: Optional[Callable[[], float]] = None,
     stop_event: Optional[threading.Event] = None,
     ops_counter: Optional[list] = None,
+    dest_loc_evaluator: Optional[Callable] = None,
 ) -> None:
     """Run a continuous randomised add/move/remove loop on *storage* until
     ``stop_event`` is set (or forever if None).
 
     Args:
-        storage:        A pre-built Storage instance to operate on.
-        cfg:            SimulationConfig; defaults to SIM_DEFAULT.
-        delay_provider: Optional callable returning seconds to sleep after each op.
-        stop_event:     threading.Event that signals the loop to exit cleanly.
-        ops_counter:    Optional single-element list [n] incremented each op so
-                        callers can read total ops without a lock.
+        storage:            A pre-built Storage instance to operate on.
+        cfg:                SimulationConfig; defaults to SIM_DEFAULT.
+        delay_provider:     Optional callable returning seconds to sleep after each op.
+        stop_event:         threading.Event that signals the loop to exit cleanly.
+        ops_counter:        Optional single-element list [n] incremented each op so
+                            callers can read total ops without a lock.
+        dest_loc_evaluator: Evaluator for destination location selection in add/move ops.
+                            Defaults to evaluators.fewest_containers.
     """
     if cfg is None:
         cfg = SIM_DEFAULT
@@ -63,6 +66,8 @@ def run_simulation(
         stop_event = threading.Event()
     if ops_counter is None:
         ops_counter = [0]
+    if dest_loc_evaluator is None:
+        dest_loc_evaluator = evaluators.fewest_containers
 
     container_counter = 0
     max_concurrent    = sum(loc.Capacity for loc in storage.Locations.values())
@@ -86,7 +91,7 @@ def run_simulation(
                 new_container=dcs.Container(id=cid),
                 dest_loc_query_args=LocationQualifier(at_least_capacity=1, has_addable_position=True),
             )],
-            dest_loc_evaluator=evaluators.fewest_containers,
+            dest_loc_evaluator=dest_loc_evaluator,
         )
 
     def _unblock(target_container) -> bool:
@@ -116,7 +121,7 @@ def run_simulation(
                         ),
                     ),
                 )],
-                dest_loc_evaluator=evaluators.fewest_containers,
+                dest_loc_evaluator=evaluators.random_score,
             )
         return True
 
@@ -150,7 +155,7 @@ def run_simulation(
                 ),
                 dest_loc_query_args=LocationQualifier(at_least_capacity=1, has_addable_position=True),
             )],
-            dest_loc_evaluator=evaluators.fewest_containers,
+            dest_loc_evaluator=dest_loc_evaluator,
         )
 
     while not stop_event.is_set():

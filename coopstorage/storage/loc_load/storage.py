@@ -352,6 +352,51 @@ class Storage:
                     logger.error(f"Transfer request not ready: \n{pprint.pformat(request)}")
                     raise NotImplementedError()
 
+    def clear_all(self) -> dict:
+        """Remove all containers and locations, fire CONTAINER_REMOVED events,
+        and reset the LocationMapTree.
+
+        Returns counts of what was cleared.
+        """
+        with self._lock:
+            all_containers = list(self._data_store.ContainersData.get().values())
+            loc_count      = len(self._data_store.LocationsData.get())
+            # Clear channel processors
+            for loc in self._data_store.LocationsData.iter_values():
+                loc.clear_containers()
+            # Wipe all data stores
+            self._data_store.clear()
+            # Reset tree
+            self._location_map_tree._labels.clear()
+            self._location_map_tree._inverted.clear()
+            self._location_map_tree._levels_order.clear()
+            # Notify subscribers of each removed container
+            for c in all_containers:
+                pub.sendMessage(StorageTopic.CONTAINER_REMOVED.value,
+                                payload={'id': str(c.id)})
+        logger.info("clear_all: removed %d locations and %d containers",
+                    loc_count, len(all_containers))
+        return {"cleared_locations": loc_count, "cleared_containers": len(all_containers)}
+
+    def clear_containers(self) -> int:
+        """Remove all containers from every location and fire CONTAINER_REMOVED events.
+
+        Returns the number of containers cleared.
+        """
+        with self._lock:
+            all_containers = list(self._data_store.ContainersData.get().values())
+            # Clear channel processors in every location
+            for loc in self._data_store.LocationsData.iter_values():
+                loc.clear_containers()
+            # Wipe the data store
+            self._data_store.ContainersData.clear()
+            # Notify subscribers
+            for c in all_containers:
+                pub.sendMessage(StorageTopic.CONTAINER_REMOVED.value,
+                                payload={'id': str(c.id)})
+        logger.info("clear_containers: removed %d containers", len(all_containers))
+        return len(all_containers)
+
     @property
     def Containers(self) -> List[dcs.Container]:
         return list(self._data_store.ContainersData.get().values())

@@ -42,9 +42,7 @@ def container_router_factory(storage: Storage):
     @container_router.delete("/containers")
     def delete_all_containers():
         """Remove all containers from storage, leaving locations intact."""
-        count = len(storage.get_containers())
-        storage._data_store.ContainersData.clear()
-        logger.info("Cleared all containers (%d removed)", count)
+        count = storage.clear_containers()
         return {"cleared": count}
 
     return container_router
