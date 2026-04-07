@@ -403,14 +403,15 @@ class Storage:
 
     @property
     def ContainerLocs(self) -> Dict[dcs.Container, Location]:
-        ret = {}
-        loc_map = self._data_store.LocationsData.get()
-        container_map = self._data_store.ContainersData.get()
-        for _, loc in loc_map.items():
-            for container_id in loc.ContainerIds:
-                ret[container_map[container_id]] = loc
-
-        return ret
+        with self._lock:
+            ret = {}
+            loc_map = self._data_store.LocationsData.get()
+            container_map = self._data_store.ContainersData.get()
+            for _, loc in loc_map.items():
+                for container_id in loc.ContainerIds:
+                    if container_id in container_map:
+                        ret[container_map[container_id]] = loc
+            return ret
 
     @property
     def LocContainers(self) -> Dict[Location, List[dcs.Container]]:

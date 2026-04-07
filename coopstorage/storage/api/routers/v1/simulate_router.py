@@ -77,8 +77,8 @@ def simulate_router_factory(storage: Storage, event_bus: StorageEventBus = None)
 
         _sim_stop = threading.Event()
         _sim_ops  = [0]
-        delay     = (body.delay_ms / 1000.0) if body.delay_ms > 0 else None
-        delay_fn  = (lambda: delay) if delay else None
+        delay_s  = body.delay_ms / 1000.0
+        delay_fn = (lambda d=delay_s: d) if delay_s > 0 else None
 
         if body.mode == "showcase":
             cfg = ShowcaseConfig(
