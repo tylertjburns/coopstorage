@@ -53,6 +53,29 @@
     #confirm-buttons { display: flex; gap: 8px; justify-content: flex-end; }
     #sim-status { font-size: 11px; color: #8b949e; margin-left: 4px; }
 
+    /* ── Simulation config dialog ────────────────────────────────────────────── */
+    #sim-dialog-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6); z-index: 100;
+      align-items: center; justify-content: center;
+    }
+    #sim-dialog-overlay.visible { display: flex; }
+    #sim-dialog-box {
+      background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+      padding: 22px 26px; width: 340px; font-family: monospace;
+    }
+    #sim-dialog-box h3 { color: #e6edf3; font-size: 13px; margin-bottom: 16px; }
+    .sim-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+    .sim-field label { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; }
+    .sim-field input, .sim-field select {
+      background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+      border-radius: 4px; padding: 5px 8px; font-family: monospace; font-size: 12px;
+    }
+    .sim-field input:focus, .sim-field select:focus { outline: none; border-color: #58a6ff; }
+    .sim-row { display: flex; gap: 10px; }
+    .sim-row .sim-field { flex: 1; }
+    #sim-dialog-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
     #status {
       position: fixed; bottom: 12px; left: 12px;
       font-size: 11px; color: #8b949e;
@@ -114,6 +137,64 @@
     <div id="confirm-buttons">
       <button class="btn" id="confirm-cancel">Cancel</button>
       <button class="btn btn-danger" id="confirm-ok" disabled>Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div id="sim-dialog-overlay">
+  <div id="sim-dialog-box">
+    <h3>Simulation Config</h3>
+    <div class="sim-row">
+      <div class="sim-field">
+        <label>Mode</label>
+        <select id="sim-mode">
+          <option value="random">Random</option>
+          <option value="showcase">Showcase</option>
+        </select>
+      </div>
+      <div class="sim-field">
+        <label>Delay (ms / op)</label>
+        <input id="sim-delay" type="number" min="0" step="10" value="0" />
+      </div>
+    </div>
+    <div class="sim-field" id="sim-evaluator-row">
+      <label>Destination evaluator</label>
+      <select id="sim-evaluator">
+        <option value="fewest_containers">Fewest containers</option>
+        <option value="random_score">Random</option>
+        <option value="max_available_capacity_pct">Max available capacity %</option>
+        <option value="least_available_capacity_pct">Least available capacity %</option>
+      </select>
+    </div>
+    <div class="sim-row">
+      <div class="sim-field">
+        <label>Min fill (0–1)</label>
+        <input id="sim-min-fill" type="number" min="0" max="1" step="0.05" value="0.15" />
+      </div>
+      <div class="sim-field">
+        <label>Max fill (0–1)</label>
+        <input id="sim-max-fill" type="number" min="0" max="1" step="0.05" value="0.85" />
+      </div>
+    </div>
+    <div id="sim-weights-section">
+      <div class="sim-row">
+        <div class="sim-field">
+          <label>Add weight</label>
+          <input id="sim-add-weight" type="number" min="0" step="0.05" value="0.45" />
+        </div>
+        <div class="sim-field">
+          <label>Move weight</label>
+          <input id="sim-move-weight" type="number" min="0" step="0.05" value="0.40" />
+        </div>
+        <div class="sim-field">
+          <label>Remove weight</label>
+          <input id="sim-remove-weight" type="number" min="0" step="0.05" value="0.15" />
+        </div>
+      </div>
+    </div>
+    <div id="sim-dialog-buttons">
+      <button class="btn" id="sim-dialog-cancel">Cancel</button>
+      <button class="btn btn-sim" id="sim-dialog-ok">▶ Start</button>
     </div>
   </div>
 </div>
@@ -1284,13 +1365,63 @@ async function _pollSimStatus() {
   } catch (_) {}
 }
 
-btnSimStart.addEventListener('click', async () => {
+// ─── Simulation config dialog ─────────────────────────────────────────────────
+const simDialogOverlay  = document.getElementById('sim-dialog-overlay');
+const simModeEl         = document.getElementById('sim-mode');
+const simEvaluatorRow   = document.getElementById('sim-evaluator-row');
+const simWeightsSection = document.getElementById('sim-weights-section');
+
+function _updateSimDialogVisibility() {
+  const isRandom = simModeEl.value === 'random';
+  simEvaluatorRow.style.display   = isRandom ? '' : 'none';
+  simWeightsSection.style.display = isRandom ? '' : 'none';
+}
+simModeEl.addEventListener('change', _updateSimDialogVisibility);
+_updateSimDialogVisibility();
+
+btnSimStart.addEventListener('click', () => {
+  simDialogOverlay.classList.add('visible');
+});
+
+document.getElementById('sim-dialog-cancel').addEventListener('click', () => {
+  simDialogOverlay.classList.remove('visible');
+});
+
+document.getElementById('sim-dialog-ok').addEventListener('click', async () => {
+  simDialogOverlay.classList.remove('visible');
   btnSimStart.disabled = true;
+
+  const mode = simModeEl.value;
+  const body = {
+    mode,
+    delay_ms:      parseFloat(document.getElementById('sim-delay').value)     || 0,
+    min_fill_pct:  parseFloat(document.getElementById('sim-min-fill').value)  || 0.15,
+    max_fill_pct:  parseFloat(document.getElementById('sim-max-fill').value)  || 0.85,
+  };
+  if (mode === 'random') {
+    body.dest_loc_evaluator = document.getElementById('sim-evaluator').value;
+    body.add_weight    = parseFloat(document.getElementById('sim-add-weight').value)    || 0.45;
+    body.move_weight   = parseFloat(document.getElementById('sim-move-weight').value)   || 0.40;
+    body.remove_weight = parseFloat(document.getElementById('sim-remove-weight').value) || 0.15;
+  }
+
   try {
-    await fetch('/v1/simulate/start', { method: 'POST',
+    const res = await fetch('/v1/simulate/start', {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: 'random' }) });
-  } catch (_) {}
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(`Failed to start simulation:\n${err.detail || res.statusText}`);
+      btnSimStart.disabled = false;
+      return;
+    }
+  } catch (e) {
+    alert(`Failed to start simulation: ${e}`);
+    btnSimStart.disabled = false;
+    return;
+  }
   _pollSimStatus();
 });
 

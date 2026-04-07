@@ -59,7 +59,7 @@ class AisleConfigAPI(BaseModel):
 
 class ZoneConfigAPI(BaseModel):
     aisles: int = 5
-    inter_aisle_spacing: float = 20.0
+    inter_aisle_spacing: float = 5.0
     origin: List[float] = [0.0, 0.0, 0.0]
     aisle_config: AisleConfigAPI = None
 
