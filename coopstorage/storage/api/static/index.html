@@ -156,6 +156,7 @@ const containers = new Map();   // flat container registry
 const aisleIndex    = new Map();
 const aisleBoxCache = new Map();
 let   hoveredAisleKey = null;
+let   hoveredLocId    = null;
 
 function _aisleKey(loc) {
   const tp = loc.tree_path;
@@ -504,69 +505,7 @@ function requestRender() {
   }, RENDER_THROTTLE_MS);
 }
 
-function render() {
-  ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = '#0d1117';
-  ctx.fillRect(0, 0, W, H);
-
-  const useDots = scale < LOD_DETAIL;
-  const r = Math.max(1.5, scale * 0.6);
-
-  // During zoom: only wireframes, zero per-loc work
-  if (zooming || panning) {
-    for (const key of aisleIndex.keys()) _drawAisleWireframe(key);
-    return;
-  }
-
-  // Dot batching: collect positions in two arrays, draw in two path calls.
-  const dotsEmpty    = [];
-  const dotsOccupied = [];
-
-  // At dot-zoom: draw non-hovered aisles as wireframes, then skip their locs.
-  if (useDots && aisleIndex.size > 0) {
-    for (const key of aisleIndex.keys()) {
-      if (key === hoveredAisleKey) continue;
-      _drawAisleWireframe(key);
-    }
-  }
-
-  for (const loc of locations.values()) {
-    const [sx, sy] = project(...loc.coords);
-
-    // Viewport cull with generous margin
-    if (sx < -300 || sx > W + 300 || sy < -300 || sy > H + 300) continue;
-
-    const locAisleKey = _aisleKey(loc);
-    const isHoveredAisle = locAisleKey !== null && locAisleKey === hoveredAisleKey;
-
-    const occupied = loc.slots.some(s => s !== null);
-
-    if (useDots) {
-      // At dot-zoom: only render individual locs for the hovered aisle
-      if (!isHoveredAisle && locAisleKey !== null) continue;
-      if (occupied) dotsOccupied.push(sx, sy);
-      else          dotsEmpty.push(sx, sy);
-    } else if (isHoveredAisle) {
-      // Detail zoom, hovered aisle: full tile/detail rendering
-      if (!loc.slot_dims) {
-        drawDetail(loc, sx, sy);
-      } else {
-        const tile = _getTile(loc);
-        if (tile) {
-          ctx.drawImage(tile.canvas, sx + tile.relOx, sy + tile.relOy);
-        } else {
-          drawDetail(loc, sx, sy);
-        }
-      }
-    } else {
-      // Detail zoom, non-hovered: dots
-      if (occupied) dotsOccupied.push(sx, sy);
-      else          dotsEmpty.push(sx, sy);
-    }
-  }
-
-  // Flush dot batches
-  // rect() is significantly cheaper than arc() for large batches
+function _flushDots(dotsEmpty, dotsOccupied, r) {
   const d = r * 2;
   if (dotsEmpty.length > 0) {
     ctx.beginPath();
@@ -582,6 +521,80 @@ function render() {
     ctx.fillStyle = '#238636';
     ctx.fill();
   }
+}
+
+function _drawTile(loc, sx, sy) {
+  if (!loc.slot_dims) {
+    drawDetail(loc, sx, sy);
+  } else {
+    const tile = _getTile(loc);
+    if (tile) ctx.drawImage(tile.canvas, sx + tile.relOx, sy + tile.relOy);
+    else      drawDetail(loc, sx, sy);
+  }
+}
+
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, W, H);
+
+  const useDots = scale < LOD_DETAIL;
+  const r = Math.max(1.5, scale * 0.6);
+
+  // Fast path during gesture: dots for everything + aisle wireframes on top
+  if (zooming || panning) {
+    const dE = [], dO = [];
+    for (const loc of locations.values()) {
+      const [sx, sy] = project(...loc.coords);
+      if (sx < -300 || sx > W + 300 || sy < -300 || sy > H + 300) continue;
+      if (loc.slots.some(s => s !== null)) dO.push(sx, sy);
+      else dE.push(sx, sy);
+    }
+    _flushDots(dE, dO, r);
+    for (const key of aisleIndex.keys()) _drawAisleWireframe(key);
+    return;
+  }
+
+  const dotsEmpty    = [];
+  const dotsOccupied = [];
+
+  // At dot-zoom: draw non-hovered aisles as wireframes (they summarise their locs)
+  if (useDots && aisleIndex.size > 0) {
+    for (const key of aisleIndex.keys()) {
+      if (key === hoveredAisleKey) continue;
+      _drawAisleWireframe(key);
+    }
+  }
+
+  for (const loc of locations.values()) {
+    const [sx, sy] = project(...loc.coords);
+    if (sx < -300 || sx > W + 300 || sy < -300 || sy > H + 300) continue;
+
+    const locAisleKey   = _aisleKey(loc);
+    const isHoveredAisle = locAisleKey !== null && locAisleKey === hoveredAisleKey;
+    const isHoveredLoc   = loc.id === hoveredLocId;
+    const occupied       = loc.slots.some(s => s !== null);
+
+    if (useDots) {
+      // Dot-zoom: skip aisle locs that belong to a non-hovered aisle (wireframe covers them)
+      if (locAisleKey !== null && !isHoveredAisle) continue;
+      // Show tile for hovered aisle or individual hovered location
+      if (isHoveredAisle || isHoveredLoc) {
+        _drawTile(loc, sx, sy);
+      } else {
+        if (occupied) dotsOccupied.push(sx, sy);
+        else          dotsEmpty.push(sx, sy);
+      }
+    } else {
+      // Detail zoom: render tiles for all visible locations
+      _drawTile(loc, sx, sy);
+    }
+  }
+
+  _flushDots(dotsEmpty, dotsOccupied, r);
+
+  // Hovered aisle wireframe overlay
+  if (hoveredAisleKey !== null) _drawAisleWireframe(hoveredAisleKey);
 }
 
 function drawRect(loc, sx, sy, occupied) {
@@ -970,8 +983,15 @@ canvas.addEventListener('mousemove', e => {
     tooltipEl.style.display = 'none';
     clearTimeout(_aisleDebounceTimer);
     _pendingAisleKey = null;
-    if (hoveredAisleKey !== null) { hoveredAisleKey = null; forceRender(); }
+    const needsRender = hoveredAisleKey !== null || hoveredLocId !== null;
+    hoveredAisleKey = null;
+    hoveredLocId    = null;
+    if (needsRender) forceRender();
     return;
+  }
+  if (hit.id !== hoveredLocId) {
+    hoveredLocId = hit.id;
+    forceRender();
   }
   const newKey = _aisleKey(hit);
   if (newKey !== hoveredAisleKey && newKey !== _pendingAisleKey) {
@@ -1007,7 +1027,10 @@ canvas.addEventListener('mousemove', e => {
 });
 canvas.addEventListener('mouseleave', () => {
   tooltipEl.style.display = 'none';
-  if (hoveredAisleKey !== null) { hoveredAisleKey = null; forceRender(); }
+  const needsRender = hoveredAisleKey !== null || hoveredLocId !== null;
+  hoveredAisleKey = null;
+  hoveredLocId    = null;
+  if (needsRender) forceRender();
 });
 
 function hitTest(mx, my) {
@@ -1341,6 +1364,7 @@ document.getElementById('btn-clear-locs').addEventListener('click', async () => 
   aisleIndex.clear();
   aisleBoxCache.clear();
   hoveredAisleKey = null;
+  hoveredLocId    = null;
   forceRender();
   await loadSnapshot();
 });

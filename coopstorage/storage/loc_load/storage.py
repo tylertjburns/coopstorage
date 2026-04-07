@@ -98,6 +98,10 @@ class Storage:
             if locs is not None:
                 self._data_store.LocationsData.add(locs)
                 for loc in locs:
+                    try:
+                        tree_path = self._location_map_tree.get_path(loc.Id)
+                    except (KeyError, AttributeError):
+                        tree_path = None
                     pub.sendMessage(StorageTopic.LOCATION_REGISTERED.value, payload={
                         'id': str(loc.Id),
                         'coords': list(loc.Coords),
@@ -112,7 +116,8 @@ class Storage:
                         'slot_offsets': [list(o) for o in loc.SlotOffsets],
                         'slots': _slots_for_loc(loc),
                         **_channel_access_for_loc(loc),
-                        'containers': {}
+                        'containers': {},
+                        'tree_path': tree_path,
                     })
         return self
 

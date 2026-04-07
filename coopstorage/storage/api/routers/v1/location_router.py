@@ -63,11 +63,12 @@ def location_router_factory(storage: Storage) -> APIRouter:
 
     @location_router.put("/locations")
     def put_locations(body: LocationsRequestAPIWrapper):
-        locs = [x.as_loc() for x in body.locations]
-        storage.register_locs(locs=locs)
+        # Register tree labels first so location_registered events include tree_path
         for loc_api in body.locations:
             if loc_api.tree_labels:
                 storage.LocationMapTree.register(loc_api.id, **loc_api.tree_labels)
+        locs = [x.as_loc() for x in body.locations]
+        storage.register_locs(locs=locs)
         ids = [x.id for x in body.locations]
         logger.info(f"Locations registered: {ids}")
         return {"registered": ids}
