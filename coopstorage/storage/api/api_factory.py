@@ -25,7 +25,7 @@ def _v1_router(storage: Storage, event_bus: StorageEventBus) -> APIRouter:
     router.include_router(v1.events_router_factory(event_bus),           tags=["events"])
     router.include_router(v1.tree_router_factory(storage))
     router.include_router(v1.generate_router_factory(storage))
-    router.include_router(v1.simulate_router_factory(storage))
+    router.include_router(v1.simulate_router_factory(storage, event_bus))
     return router
 
 

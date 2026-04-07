@@ -400,7 +400,7 @@ function _onZoom() {
   _zoomTimer = setTimeout(() => {
     zooming = false;
     tileCache.clear();   // force rebuild at new scale
-    requestRender();
+    forceRender();
     // Pre-warm tiles at the new scale so subsequent hovers are instant
     if (scale >= LOD_DETAIL) _prewarmTiles([...locations.values()]);
   }, 50);
@@ -435,7 +435,7 @@ function _queueEvent(msg) {
 function resize() {
   W = canvas.width  = window.innerWidth;
   H = canvas.height = window.innerHeight;
-  requestRender();
+  forceRender();
 }
 window.addEventListener('resize', resize);
 resize();
@@ -478,7 +478,7 @@ function fitView() {
   scale = Math.max(scale, 0.01);
   panX  = W / 2 - ((minX + maxX) / 2) * scale;
   panY  = H / 2 - ((minY + maxY) / 2) * scale;
-  requestRender();
+  forceRender();
 }
 
 // ─── LOD thresholds (pixels per world unit) ───────────────────────────────────
@@ -487,14 +487,20 @@ function fitView() {
 const LOD_DETAIL = 3;
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
+// forceRender: bypass throttle for interactions (pan, zoom, hover, resize).
+function forceRender() {
+  if (!renderQueued) {
+    renderQueued = true;
+    requestAnimationFrame(() => { renderQueued = false; render(); });
+  }
+}
+
+// requestRender: throttled path for SSE-driven updates.
 function requestRender() {
   if (_renderThrottle) return;
   _renderThrottle = setTimeout(() => {
     _renderThrottle = null;
-    if (!renderQueued) {
-      renderQueued = true;
-      requestAnimationFrame(() => { renderQueued = false; render(); });
-    }
+    forceRender();
   }, RENDER_THROTTLE_MS);
 }
 
@@ -867,8 +873,8 @@ window.addEventListener('mousemove', e => {
   lastMX = e.clientX; lastMY = e.clientY;
   panning = true;
   clearTimeout(_panTimer);
-  _panTimer = setTimeout(() => { panning = false; requestRender(); }, 50);
-  requestRender();
+  _panTimer = setTimeout(() => { panning = false; forceRender(); }, 50);
+  forceRender();
 });
 window.addEventListener('mouseup', () => {
   dragging = false;
@@ -882,7 +888,7 @@ canvas.addEventListener('wheel', e => {
   panY = e.clientY - (e.clientY - panY) * factor;
   scale *= factor;
   _onZoom();
-  requestRender();
+  forceRender();
 }, { passive: false });
 
 // ─── Interaction: touch (pan + pinch-zoom) ────────────────────────────────────
@@ -910,8 +916,8 @@ canvas.addEventListener('touchmove', e => {
     lastTouchY = e.touches[0].clientY;
     panning = true;
     clearTimeout(_panTimer);
-    _panTimer = setTimeout(() => { panning = false; requestRender(); }, 50);
-    requestRender();
+    _panTimer = setTimeout(() => { panning = false; forceRender(); }, 50);
+    forceRender();
   } else if (e.touches.length === 2) {
     const dx = e.touches[0].clientX - e.touches[1].clientX;
     const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -924,7 +930,7 @@ canvas.addEventListener('touchmove', e => {
       panY = cy - (cy - panY) * factor;
       scale *= factor;
       _onZoom();
-      requestRender();
+      forceRender();
     }
     lastPinchDist = dist;
   }
@@ -953,7 +959,7 @@ function _prewarmAisle(key) {
 function _commitAisleKey(key) {
   if (key !== hoveredAisleKey) {
     hoveredAisleKey = key;
-    requestRender();
+    forceRender();
   }
 }
 
@@ -964,7 +970,7 @@ canvas.addEventListener('mousemove', e => {
     tooltipEl.style.display = 'none';
     clearTimeout(_aisleDebounceTimer);
     _pendingAisleKey = null;
-    if (hoveredAisleKey !== null) { hoveredAisleKey = null; requestRender(); }
+    if (hoveredAisleKey !== null) { hoveredAisleKey = null; forceRender(); }
     return;
   }
   const newKey = _aisleKey(hit);
@@ -1001,7 +1007,7 @@ canvas.addEventListener('mousemove', e => {
 });
 canvas.addEventListener('mouseleave', () => {
   tooltipEl.style.display = 'none';
-  if (hoveredAisleKey !== null) { hoveredAisleKey = null; requestRender(); }
+  if (hoveredAisleKey !== null) { hoveredAisleKey = null; forceRender(); }
 });
 
 function hitTest(mx, my) {
@@ -1105,6 +1111,15 @@ function applyEvent(msg) {
           if (cid in loc.containers) { delete loc.containers[cid]; tileCache.delete(loc.id); break; }
         }
       }
+      break;
+    }
+    case 'sim_status': {
+      const running = payload.running;
+      btnSimStart.disabled = running;
+      btnSimStop.disabled  = !running;
+      simStatusEl.textContent = running
+        ? `running · ${payload.ops.toLocaleString()} ops · ${payload.fill_pct}% full`
+        : '';
       break;
     }
   }
@@ -1262,8 +1277,7 @@ btnSimStop.addEventListener('click', async () => {
   _pollSimStatus();
 });
 
-setInterval(_pollSimStatus, 2000);
-_pollSimStatus();
+_pollSimStatus(); // one-time fetch on load; updates after that come via sim_status SSE events
 
 // ─── Confirm modal ────────────────────────────────────────────────────────────
 const confirmOverlay = document.getElementById('confirm-overlay');
@@ -1327,7 +1341,7 @@ document.getElementById('btn-clear-locs').addEventListener('click', async () => 
   aisleIndex.clear();
   aisleBoxCache.clear();
   hoveredAisleKey = null;
-  requestRender();
+  forceRender();
   await loadSnapshot();
 });
 </script>
