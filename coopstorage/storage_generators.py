@@ -11,6 +11,7 @@ import coopstorage.storage.loc_load.dcs as dcs
 from coopstorage.storage.loc_load.storage import Storage
 import coopstorage.storage.loc_load.channel_processors as cps
 from coopstorage.location_map_tree import LocationMapTree
+import math
 
 @dataclass(frozen=True, slots=True)
 class BayConfig:
@@ -45,6 +46,7 @@ class BayConfig:
                         loc_id,
                         zone=zone_idx,
                         aisle=aisle_idx,
+                        row=f"{aisle_idx}{self.side_designator}",
                         bay=f"{bay_idx}{self.side_designator}",
                         shelf=shelf_idx,
                         loc=loc_idx,
@@ -84,7 +86,7 @@ class AisleConfig:
 class ZoneConfig:
     aisles: int = 10
     aisle_config: AisleConfig = field(default_factory=AisleConfig)
-    inter_aisle_spacing: float = 20.0
+    inter_aisle_spacing: float = 2.0
     origin: vec.FloatVec = (0.0, 0.0, 0.0)
 
     def locs(self, zone_idx: int = 0, tree: LocationMapTree = None) -> List[Location]:
@@ -138,8 +140,6 @@ def build_showcase_storage(
 ) -> Storage:
     """Build a Storage with exactly one location per channel processor type,
     arranged in the smallest square grid that fits all types."""
-    import math
-    from coopstorage.storage.loc_load.location import Location
     n    = len(cps.ChannelProcessorType)
     cols = math.ceil(math.sqrt(n))
     locations = [
