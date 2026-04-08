@@ -503,6 +503,12 @@ const _eventQueue = [];
 let   _drainQueued = false;
 
 function _queueEvent(msg) {
+  if (document.hidden) {
+    // Tab is inactive: update state immediately without scheduling a render.
+    // This keeps the data model current and prevents unbounded queue growth.
+    applyEvent(msg);
+    return;
+  }
   _eventQueue.push(msg);
   if (!_drainQueued) {
     _drainQueued = true;
@@ -521,6 +527,12 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 resize();
+
+// When the tab becomes visible again, do a single catch-up render.
+// Events were applied to state immediately while hidden, so no backlog to drain.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') forceRender();
+});
 
 // ─── Viewport ─────────────────────────────────────────────────────────────────
 let panX = W / 2, panY = H / 2, scale = 1;
@@ -577,9 +589,9 @@ function forceRender() {
   }
 }
 
-// requestRender: throttled path for SSE-driven updates.
+// requestRender: throttled path for SSE-driven updates. No-ops when tab is hidden.
 function requestRender() {
-  if (_renderThrottle) return;
+  if (document.hidden || _renderThrottle) return;
   _renderThrottle = setTimeout(() => {
     _renderThrottle = null;
     forceRender();
