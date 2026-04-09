@@ -73,8 +73,8 @@ LOADS = {}
 def put_transfer_request(
         transfer_request_criteria: TransferRequestAPIWrapper
 ):
-    logger.info("Received Transfer Requests: "
-                f"\n{'\n\t'.join(str(x) for x in transfer_request_criteria.requests)}")
+    requests_str = '\n\t'.join(str(x) for x in transfer_request_criteria.requests)
+    logger.info(f"Received Transfer Requests: \n{requests_str}")
 
     storage.handle_transfer_requests(
         transfer_request_criteria=transfer_request_criteria.requests

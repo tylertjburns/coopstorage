@@ -122,7 +122,7 @@ def simulate_router_factory(storage: Storage, event_bus: StorageEventBus = None)
 
     @router.post("/stop")
     def stop_simulation():
-        global _sim_thread, _sim_stop
+        global _sim_thread
 
         if _sim_thread is None or not _sim_thread.is_alive():
             raise HTTPException(status_code=409, detail="No simulation is currently running.")
