@@ -1,9 +1,12 @@
 import setuptools
+from pathlib import Path
 
-with open('README.md') as f:
+HERE = Path(__file__).parent
+
+with open(HERE / 'README.md') as f:
     README = f.read()
 
-with open('requirements.txt') as f:
+with open(HERE / 'requirements.txt') as f:
     requirements = f.read().splitlines()
 
 setuptools.setup(name='coopstorage',
