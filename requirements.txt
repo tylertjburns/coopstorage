@@ -4,3 +4,4 @@ fastapi
 pydantic
 PyPubSub
 uvicorn
+matplotlib>=3.6
