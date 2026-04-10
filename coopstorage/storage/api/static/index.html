@@ -1512,13 +1512,27 @@ canvas.addEventListener('mouseleave', () => {
 });
 
 function hitTest(mx, my) {
-  const threshold = _activeTier() === 'low' ? 8 : 60;
+  // Project the visual centre of each loc (geometric midpoint of its bounding box),
+  // then return the closest one. The min-corner projection (old approach) drifts
+  // from the visual cube centre at high zoom, causing perceived offset.
+  let bestDistSq = Infinity;
   let hit = null;
   for (const loc of locations.values()) {
-    const [sx, sy] = project(...loc.coords);
-    if (Math.abs(mx - sx) < threshold && Math.abs(my - sy) < threshold) hit = loc;
+    const [wx, wy, wz] = loc.coords;
+    const [dx, dy, dz] = loc.meta.dims;
+    const [sx, sy] = isIso
+      ? project(wx + dx / 2, wy + dy / 2, wz + dz / 2)
+      : project(wx + dx / 2, wy + dy / 2, 0);
+    const d2 = (mx - sx) ** 2 + (my - sy) ** 2;
+    if (d2 < bestDistSq) { bestDistSq = d2; hit = loc; }
   }
-  return hit;
+  if (!hit) return null;
+  // Reject if the mouse is outside a generous radius around the nearest centre.
+  // Use half the 3D diagonal of the loc scaled to screen pixels so the cutoff
+  // automatically grows/shrinks with zoom — no more dead zones or false hits.
+  const [dx, dy, dz] = hit.meta.dims;
+  const reach = Math.hypot(dx / 2, dy / 2, isIso ? dz / 2 : 0) * scale * 1.5;
+  return bestDistSq <= reach * reach ? hit : null;
 }
 
 // ─── View toggle ──────────────────────────────────────────────────────────────
