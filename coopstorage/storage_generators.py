@@ -17,7 +17,7 @@ import math
 class BayConfig:
     loc_config: dcs.LocationMeta
     locations_per_bay: int = 2
-    inter_bay_spacing: float = 10.0
+    inter_bay_spacing: float = 3.0
     bay_height: float = 5.0
     shelves: int = 5
     side_designator: str = "L"  # for visualizer only; can be "L" or "R"
@@ -56,7 +56,7 @@ class BayConfig:
 
 @dataclass(frozen=True, slots=True)
 class AisleConfig:
-    bays: int = 100
+    bays: int = 20
     left_bay_config: BayConfig = None
     right_bay_config: BayConfig = None
     aisle_width: float = 20.0

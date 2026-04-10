@@ -25,27 +25,28 @@ logger = logging.getLogger(__name__)
 RESERVATION_KEY = '006ddd91-73a5-4075-b49b-baa3077d5b4a'
 
 
-def _slots_for_loc(loc) -> list:
-    """Return a list of container-id strings (or None) for every slot in loc's channel."""
-    pos = loc.ContainerPositions
-    return [str(pos[i]) if pos.get(i) is not None else None for i in range(loc.Capacity)]
-
-def _channel_access_for_loc(loc) -> dict:
-    """Return addable_slots and removable_slots index lists for loc's current state."""
-    state = [loc.ContainerPositions.get(i) for i in range(loc.Capacity)]
-    cp = loc.Meta.channel_processor
-    try:
-        removable = cp.get_removable_positions(state)
-    except StopIteration:
-        removable = []
-    try:
-        addable = cp.get_addable_positions(state)
-    except StopIteration:
-        addable = []
-    return {
-        'addable_slots':  addable,
-        'removable_slots': removable,
+def _build_transfer_payload(transfer_request: 'TransferRequest',
+                            updated_source_loc=None,
+                            updated_dest_loc=None) -> dict:
+    payload = {
+        'container_id':  str(transfer_request.container.id),
+        'container_uom': transfer_request.container.uom.name,
+        'from_loc_id': None,
+        'to_loc_id':   None,
     }
+    if updated_source_loc is not None:
+        payload.update({
+            'from_loc_id': str(updated_source_loc.Id),
+            'from_slots':  updated_source_loc.Slots,
+            **{f'from_{k}': v for k, v in updated_source_loc.channel_access_state().items()},
+        })
+    if updated_dest_loc is not None:
+        payload.update({
+            'to_loc_id': str(updated_dest_loc.Id),
+            'to_slots':  updated_dest_loc.Slots,
+            **{f'to_{k}': v for k, v in updated_dest_loc.channel_access_state().items()},
+        })
+    return payload
 
 class Storage:
     def __init__(self,
@@ -114,8 +115,8 @@ class Storage:
                         },
                         'slot_dims':    list(loc.SlotDims),
                         'slot_offsets': [list(o) for o in loc.SlotOffsets],
-                        'slots': _slots_for_loc(loc),
-                        **_channel_access_for_loc(loc),
+                        'slots': loc.Slots,
+                        **loc.channel_access_state(),
                         'containers': {},
                         'tree_path': tree_path,
                     })
@@ -292,41 +293,28 @@ class Storage:
         return ret[0]
 
 
-    def _handle_transfer_request(self,
-                                 transfer_request: TransferRequest):
+    def _handle_transfer_request(self, transfer_request: TransferRequest):
+        updated_src = None
         source_txt = ""
         if transfer_request.source_loc is not None:
-            self._data_store.LocationsData.update([self._data_store.LocationsData.get(ids=[transfer_request.source_loc.get_id()])[transfer_request.source_loc.get_id()]
-                                                  .remove_containers(container_ids=[transfer_request.container.id])]
-                                                  )
+            src_id = transfer_request.source_loc.get_id()
+            updated_src = (self._data_store.LocationsData.get(ids=[src_id])[src_id]
+                           .remove_containers(container_ids=[transfer_request.container.id]))
+            self._data_store.LocationsData.update([updated_src])
             source_txt = f" from {transfer_request.source_loc.Id}"
 
+        updated_dst = None
         dest_txt = ""
         if transfer_request.dest_loc is not None:
-            self._data_store.LocationsData.update([self._data_store.LocationsData.get(ids=[transfer_request.dest_loc.get_id()])[transfer_request.dest_loc.get_id()].store_containers(
-                container_ids=[transfer_request.container.id]
-            )])
+            dst_id = transfer_request.dest_loc.get_id()
+            updated_dst = (self._data_store.LocationsData.get(ids=[dst_id])[dst_id]
+                           .store_containers(container_ids=[transfer_request.container.id]))
+            self._data_store.LocationsData.update([updated_dst])
             dest_txt = f" to {transfer_request.dest_loc.Id}"
 
         logger.info(f"Container {transfer_request.container.id} transferred{source_txt}{dest_txt}")
-
-        payload = {
-            'container_id': str(transfer_request.container.id),
-            'container_uom': transfer_request.container.uom.name,
-            'from_loc_id': str(transfer_request.source_loc.Id) if transfer_request.source_loc else None,
-            'to_loc_id':   str(transfer_request.dest_loc.Id)   if transfer_request.dest_loc   else None,
-        }
-        if transfer_request.source_loc:
-            src = self._data_store.LocationsData.get(
-                ids=[transfer_request.source_loc.get_id()])[transfer_request.source_loc.get_id()]
-            payload['from_slots'] = _slots_for_loc(src)
-            payload.update({f'from_{k}': v for k, v in _channel_access_for_loc(src).items()})
-        if transfer_request.dest_loc:
-            dst = self._data_store.LocationsData.get(
-                ids=[transfer_request.dest_loc.get_id()])[transfer_request.dest_loc.get_id()]
-            payload['to_slots'] = _slots_for_loc(dst)
-            payload.update({f'to_{k}': v for k, v in _channel_access_for_loc(dst).items()})
-        pub.sendMessage(StorageTopic.CONTAINER_MOVED.value, payload=payload)
+        pub.sendMessage(StorageTopic.CONTAINER_MOVED.value,
+                        payload=_build_transfer_payload(transfer_request, updated_src, updated_dst))
 
     def handle_transfer_requests(self,
                                  transfer_request_criteria: Iterable[TransferRequestCriteria],

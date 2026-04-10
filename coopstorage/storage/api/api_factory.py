@@ -32,8 +32,10 @@ def _v1_router(storage: Storage, event_bus: StorageEventBus) -> APIRouter:
 def storage_api_factory(
     storage: Optional[Storage] = None,
     version_routers: Optional[List[APIRouter]] = None,
+    event_bus: Optional[StorageEventBus] = None,
 ) -> FastAPI:
-    event_bus = StorageEventBus()
+    if event_bus is None:
+        event_bus = StorageEventBus()
 
     if storage is None:
         storage = Storage(data_store=StorageDataStore())

@@ -23,15 +23,17 @@ import uvicorn
 
 from coopstorage.storage.api.api_factory import storage_api_factory
 from coopstorage.storage.loc_load.storage import Storage
+from coopstorage.storage.loc_load.event_bus import StorageEventBus, StorageEvent
 
 
 class _UvicornThread(threading.Thread):
     """Runs a uvicorn server in a background daemon thread."""
 
-    def __init__(self, app, host: str, port: int):
+    def __init__(self, app, host: str, port: int, event_bus: StorageEventBus):
         super().__init__(daemon=True, name="uvicorn")
         self._config = uvicorn.Config(app, host=host, port=port, log_level="warning")
         self._server = uvicorn.Server(self._config)
+        self.event_bus = event_bus
 
     def run(self):
         self._server.run()
@@ -77,8 +79,9 @@ def start_visualizer(
     """
     viz_url = f"http://{host}:{port}/static/index.html"
 
-    app = storage_api_factory(storage=storage)
-    server_thread = _UvicornThread(app, host, port)
+    event_bus = StorageEventBus()
+    app = storage_api_factory(storage=storage, event_bus=event_bus)
+    server_thread = _UvicornThread(app, host, port, event_bus)
     server_thread.start()
 
     print("  Starting visualizer…", end=" ", flush=True)

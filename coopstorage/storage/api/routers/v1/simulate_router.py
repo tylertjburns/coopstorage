@@ -40,9 +40,6 @@ _sim_thread: Optional[threading.Thread] = None
 _sim_stop:   Optional[threading.Event]  = None
 _sim_ops:    list = [0]                 # single-element list used as shared counter
 
-_STATUS_INTERVAL = 2.0  # seconds between periodic sim_status SSE pushes
-
-
 def simulate_router_factory(storage: Storage, event_bus: StorageEventBus = None) -> APIRouter:
     router = APIRouter(prefix="/simulate", tags=["simulate"])
 
@@ -63,10 +60,9 @@ def simulate_router_factory(storage: Storage, event_bus: StorageEventBus = None)
         if event_bus is not None:
             event_bus._emit(StorageEvent('sim_status', _current_status(running, ops_counter)))
 
-    def _status_emitter(stop_event: threading.Event, ops_counter: list):
-        """Emit sim_status every _STATUS_INTERVAL seconds while the sim runs."""
-        while not stop_event.wait(_STATUS_INTERVAL):
-            _emit_status(running=True, ops_counter=ops_counter)
+    def _on_status(d: dict):
+        if event_bus is not None:
+            event_bus._emit(StorageEvent('sim_status', d))
 
     @router.post("/start")
     def start_simulation(body: SimulationConfigAPI):
@@ -87,7 +83,8 @@ def simulate_router_factory(storage: Storage, event_bus: StorageEventBus = None)
             )
             target = run_showcase_sim
             kwargs = dict(storage=storage, cfg=cfg, delay_provider=delay_fn,
-                          stop_event=_sim_stop, ops_counter=_sim_ops)
+                          stop_event=_sim_stop, ops_counter=_sim_ops,
+                          on_status=_on_status)
         else:
             if body.dest_loc_evaluator not in _EVALUATORS:
                 raise HTTPException(
@@ -105,16 +102,13 @@ def simulate_router_factory(storage: Storage, event_bus: StorageEventBus = None)
             target = run_simulation
             kwargs = dict(storage=storage, cfg=cfg, delay_provider=delay_fn,
                           stop_event=_sim_stop, ops_counter=_sim_ops,
-                          dest_loc_evaluator=_EVALUATORS[body.dest_loc_evaluator])
+                          dest_loc_evaluator=_EVALUATORS[body.dest_loc_evaluator],
+                          on_status=_on_status)
 
-        # Capture the ops list for this run so emitters share the same object
         current_ops = _sim_ops
 
         _sim_thread = threading.Thread(target=target, kwargs=kwargs, daemon=True)
         _sim_thread.start()
-
-        # Periodic status emitter (shares stop event and ops list for this run)
-        threading.Thread(target=_status_emitter, args=(_sim_stop, current_ops), daemon=True).start()
 
         logger.info("Simulation started  mode=%s  delay_ms=%.1f", body.mode, body.delay_ms)
         _emit_status(running=True, ops_counter=current_ops)

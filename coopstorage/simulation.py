@@ -46,6 +46,7 @@ def run_simulation(
     stop_event: Optional[threading.Event] = None,
     ops_counter: Optional[list] = None,
     dest_loc_evaluator: Optional[Callable] = None,
+    on_status: Optional[Callable[[dict], None]] = None,
 ) -> None:
     """Run a continuous randomised add/move/remove loop on *storage* until
     ``stop_event`` is set (or forever if None).
@@ -59,6 +60,9 @@ def run_simulation(
                             callers can read total ops without a lock.
         dest_loc_evaluator: Evaluator for destination location selection in add/move ops.
                             Defaults to evaluators.fewest_containers.
+        on_status:          Optional callback invoked periodically with a status dict:
+                            {'running': bool, 'ops': int, 'containers': int,
+                             'capacity': int, 'fill_pct': float}
     """
     if cfg is None:
         cfg = SIM_DEFAULT
@@ -195,6 +199,14 @@ def run_simulation(
                 "sim  ops=%d  concurrent=%d/%d  fill=%.0f%%  elapsed=%.0fs  rate=%.0f/s",
                 ops_counter[0], count, max_concurrent, fill * 100, elapsed, rate,
             )
+            if on_status is not None:
+                on_status({
+                    'running':    True,
+                    'ops':        ops_counter[0],
+                    'containers': count,
+                    'capacity':   max_concurrent,
+                    'fill_pct':   round(fill * 100, 1),
+                })
             last_status = now
 
 
@@ -216,6 +228,7 @@ def run_showcase_sim(
     delay_provider: Optional[Callable[[], float]] = None,
     stop_event: Optional[threading.Event] = None,
     ops_counter: Optional[list] = None,
+    on_status: Optional[Callable[[dict], None]] = None,
 ) -> None:
     """Showcase sim: each iteration adds or removes one container at every
     location in lock-step so channel processor behaviour differences are visible.
@@ -305,4 +318,12 @@ def run_showcase_sim(
                 "showcase  ops=%d  containers=%d/%d  fill=%.0f%%  elapsed=%.0fs  rate=%.0f/s",
                 ops_counter[0], count, max_concurrent, fill * 100, elapsed, rate,
             )
+            if on_status is not None:
+                on_status({
+                    'running':    True,
+                    'ops':        ops_counter[0],
+                    'containers': count,
+                    'capacity':   max_concurrent,
+                    'fill_pct':   round(fill * 100, 1),
+                })
             last_status = now

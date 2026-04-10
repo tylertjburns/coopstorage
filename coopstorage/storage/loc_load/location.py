@@ -86,6 +86,17 @@ class Location:
     def ContainerIds(self) -> List[UniqueIdentifier]:
         return self._channel.StoredIds
 
+    @property
+    def Slots(self) -> list:
+        pos = self.ContainerPositions
+        return [str(pos[i]) if pos.get(i) is not None else None for i in range(self.Capacity)]
+
+    def channel_access_state(self) -> dict:
+        return {
+            'addable_slots':  self.get_addable_positions(),
+            'removable_slots': self.get_removable_positions(),
+        }
+
     def get_removable_positions(self):
         return self._channel.get_removable_positions()
 

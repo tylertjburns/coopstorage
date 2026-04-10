@@ -10,6 +10,7 @@ Usage
     python run_viz_benchmark.py --config medium         # MEDIUM benchmark
     python run_viz_benchmark.py --mode sim              # continuous randomized simulation
     python run_viz_benchmark.py --mode showcase         # one of each processor type, lock-step
+    python run_viz_benchmark.py --mode oneaisle         # StorageConfig(zones=[ZoneConfig()]) + sim
     python run_viz_benchmark.py --delay 0.05            # 50ms between ops
     python run_viz_benchmark.py --no-browser            # don't auto-open browser
     python run_viz_benchmark.py --port 1219             # custom port (default 1219)
@@ -40,8 +41,13 @@ from coopstorage.simulation import (
 from coopstorage.storage_generators import (
     build_all_processor_storage,
     build_showcase_storage,
+    StorageConfig, ZoneConfig, AisleConfig, BayConfig,
 )
+import coopstorage.storage.loc_load.dcs as dcs
+import coopstorage.storage.loc_load.channel_processors as cps
+from dataclasses import replace
 from coopstorage.viz_helper import start_visualizer
+from coopstorage.storage.loc_load.event_bus import StorageEvent
 
 # ── config maps ───────────────────────────────────────────────────────────────
 _CONFIGS: dict[str, BenchmarkConfig] = {
@@ -58,7 +64,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run storage benchmark/sim with live visualizer")
     parser.add_argument("--config",     default="small",
                         choices=list(_CONFIGS), help="Config size (default: small)")
-    parser.add_argument("--mode",       default="benchmark", choices=["benchmark", "sim", "showcase"],
+    parser.add_argument("--mode",       default="benchmark", choices=["benchmark", "sim", "showcase", "oneaisle"],
                         help="'benchmark' runs a fixed workload; 'sim' runs continuously (default: benchmark)")
     parser.add_argument("--delay",      type=float, default=0.02,
                         help="Seconds to sleep between transfer ops (default: 0.02)")
@@ -98,6 +104,25 @@ def main():
         print(f"\n  CoopStorage Visualizer Showcase (lock-step per processor type)")
         print(f"  locations={len(storage.Locations):,}  delay={args.delay*1000:.0f}ms/op")
         print(f"  visualizer -> {viz_url}\n")
+    elif args.mode == "oneaisle":
+        _bay = BayConfig(
+            loc_config=dcs.LocationMeta(
+                dims=(10, 10, 5),
+                channel_processor=cps.AllAvailableChannelProcessor(),
+                capacity=1,
+            )
+        )
+        storage = StorageConfig(
+            zones_config=[ZoneConfig(
+                aisle_config=AisleConfig(
+                    left_bay_config=replace(_bay, side_designator="L"),
+                    right_bay_config=replace(_bay, side_designator="R"),
+                ),
+            )]
+        ).storage()
+        print(f"\n  CoopStorage Visualizer — One Aisle (default StorageConfig)")
+        print(f"  locations={len(storage.Locations):,}  delay={args.delay*1000:.0f}ms/op")
+        print(f"  visualizer -> {viz_url}\n")
 
     # 1. Start the API server and (optionally) open the browser
     server_thread = start_visualizer(
@@ -108,9 +133,13 @@ def main():
         block=False,
     )
 
+    # Build on_status callback that forwards sim status to the SSE event bus
+    def _on_status(d: dict):
+        server_thread.event_bus._emit(StorageEvent('sim_status', d))
+
     # 2. Run workload
     try:
-        if args.mode == "sim":
+        if args.mode in ("sim", "oneaisle"):
             print(f"  Running simulation (delay={args.delay*1000:.0f}ms between ops,"
                   f" Ctrl+C to stop)…\n")
             stop_event = threading.Event()
@@ -119,6 +148,7 @@ def main():
                 cfg=SIM_DEFAULT,
                 delay_provider=lambda: args.delay,
                 stop_event=stop_event,
+                on_status=_on_status,
             )
         elif args.mode == "benchmark":
             print(f"  Running benchmark (delay={args.delay*1000:.0f}ms between ops)…\n")
@@ -139,6 +169,7 @@ def main():
                 cfg=SHOWCASE,
                 delay_provider=lambda: args.delay,
                 stop_event=stop_event,
+                on_status=_on_status,
             )
 
     except KeyboardInterrupt:

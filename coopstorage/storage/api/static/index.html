@@ -109,6 +109,32 @@
     #uom-legend-title { color: #8b949e; margin-bottom: 2px; font-size: 10px; }
     .uom-legend-row { display: flex; align-items: center; gap: 6px; }
     .uom-icon { font-size: 13px; width: 18px; text-align: center; }
+
+    /* ── Viz config panel ────────────────────────────────────────────────────── */
+    #viz-dialog-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6); z-index: 100;
+      align-items: center; justify-content: center;
+    }
+    #viz-dialog-overlay.visible { display: flex; }
+    #viz-dialog-box {
+      background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+      padding: 22px 26px; width: 340px; font-family: monospace;
+    }
+    #viz-dialog-box h3 { color: #e6edf3; font-size: 13px; margin-bottom: 16px; }
+    .viz-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+    .viz-field label { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; }
+    .viz-field input, .viz-field select {
+      background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+      border-radius: 4px; padding: 5px 8px; font-family: monospace; font-size: 12px;
+    }
+    .viz-field input[type="checkbox"] {
+      width: 16px; height: 16px; padding: 0; cursor: pointer; align-self: flex-start;
+    }
+    .viz-field input:focus, .viz-field select:focus { outline: none; border-color: #58a6ff; }
+    .viz-row { display: flex; gap: 10px; }
+    .viz-row .viz-field { flex: 1; }
+    #viz-dialog-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
   </style>
 </head>
 <body>
@@ -126,6 +152,8 @@
   <span style="width:1px;background:#30363d;height:20px;display:inline-block;margin:0 4px;"></span>
   <button class="btn btn-danger" id="btn-clear-loads">Clear Loads</button>
   <button class="btn btn-danger" id="btn-clear-locs">Clear Locations</button>
+  <span style="width:1px;background:#30363d;height:20px;display:inline-block;margin:0 4px;"></span>
+  <button class="btn" id="btn-viz-config">⚙ Viz</button>
   <span id="hint">Scroll to zoom · Drag to pan</span>
 </div>
 
@@ -199,6 +227,75 @@
   </div>
 </div>
 
+<div id="viz-dialog-overlay">
+  <div id="viz-dialog-box">
+    <h3>Visualization Config</h3>
+    <div class="viz-row">
+      <div class="viz-field">
+        <label>Wireframe level</label>
+        <select id="viz-wireframe-level">
+          <option value="">None</option>
+          <option value="zone">Zone</option>
+          <option value="aisle" selected>Aisle</option>
+          <option value="row">Row</option>
+          <option value="bay">Bay</option>
+          <option value="shelf">Shelf</option>
+        </select>
+      </div>
+      <div class="viz-field">
+        <label>Hover level (low zoom)</label>
+        <select id="viz-hover-level-low">
+          <option value="">None</option>
+          <option value="zone">Zone</option>
+          <option value="aisle">Aisle</option>
+          <option value="row" selected>Row</option>
+          <option value="bay">Bay</option>
+          <option value="shelf">Shelf</option>
+        </select>
+      </div>
+    </div>
+    <div class="viz-row">
+      <div class="viz-field">
+        <label>Hover level (high zoom)</label>
+        <select id="viz-hover-level-high">
+          <option value="">None</option>
+          <option value="zone">Zone</option>
+          <option value="aisle">Aisle</option>
+          <option value="row">Row</option>
+          <option value="bay" selected>Bay</option>
+          <option value="shelf">Shelf</option>
+        </select>
+      </div>
+      <div class="viz-field">
+        <label>LOD detail threshold</label>
+        <input id="viz-lod-threshold" type="number" min="0.5" max="50" step="0.5" value="3" />
+      </div>
+    </div>
+    <div class="viz-row">
+      <div class="viz-field">
+        <label>Hover detail</label>
+        <select id="viz-hover-detail">
+          <option value="tiles" selected>Tiles</option>
+          <option value="dots">Dots</option>
+        </select>
+      </div>
+    </div>
+    <div class="viz-row">
+      <div class="viz-field">
+        <label>Dots at low zoom</label>
+        <input id="viz-dots-low-zoom" type="checkbox" checked />
+      </div>
+      <div class="viz-field">
+        <label>Show location IDs</label>
+        <input id="viz-show-loc-ids" type="checkbox" />
+      </div>
+    </div>
+    <div id="viz-dialog-buttons">
+      <button class="btn" id="viz-dialog-close">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="status">Connecting…</div>
 <div id="tooltip"></div>
 <div id="uom-legend"><div id="uom-legend-title">UOM</div></div>
@@ -230,32 +327,97 @@
 const locations  = new Map();
 const containers = new Map();   // flat container registry
 
-// ─── Aisle index ──────────────────────────────────────────────────────────────
-// aisleKey(loc) → string used as the aisle identity (zone+aisle)
-// aisleIndex: aisleKey → Set of loc_ids
-// aisleBoxCache: aisleKey → { minX, minY, maxX, maxY } in world coords (cached)
-const aisleIndex    = new Map();
-const aisleBoxCache = new Map();
-let   hoveredAisleKey = null;
+// ─── Viz config ───────────────────────────────────────────────────────────────
+const vizConfig = {
+  wireframeLevel:      'aisle',  // tree level key for wireframe grouping (null = none)
+  hoverLevelLowZoom:   'row',    // hover expand level when scale < lodDetailThreshold
+  hoverLevelHighZoom:  'bay',    // hover expand level when scale >= lodDetailThreshold
+  dotsAtLowZoom:       true,     // show dots when scale < lodDetailThreshold
+  lodDetailThreshold:  3,        // scale at which slot tiles appear
+  showLocIds:          false,    // show location ID labels inside tiles
+  hoverDetail:         'tiles',  // 'tiles' or 'dots' for hovered group
+};
+
+// ─── Group index ──────────────────────────────────────────────────────────────
+// groupKey(loc, level) → string key for a tree level (e.g. 'aisle', 'row')
+// wireframeIndex: key → Set of loc_ids for wireframe grouping
+// hoverIndexLow / hoverIndexHigh: key → Set of loc_ids for hover expansion at each LOD
+// groupBoxCache: key → bounding box (invalidated on loc registration)
+const wireframeIndex  = new Map();
+const hoverIndexLow   = new Map();   // used when scale < lodDetailThreshold
+const hoverIndexHigh  = new Map();   // used when scale >= lodDetailThreshold
+const groupBoxCache   = new Map();
+
+function _activeHoverIndex() {
+  return scale < vizConfig.lodDetailThreshold ? hoverIndexLow : hoverIndexHigh;
+}
+function _activeHoverLevel() {
+  return scale < vizConfig.lodDetailThreshold ? vizConfig.hoverLevelLowZoom : vizConfig.hoverLevelHighZoom;
+}
+let   hoveredAisleKey = null;   // key into the active hover index for the hovered group
 let   hoveredLocId    = null;
 
-function _aisleKey(loc) {
+function _groupKey(loc, level) {
+  if (!level) return null;
   const tp = loc.tree_path;
-  if (!tp || tp.zone === undefined || tp.aisle === undefined) return null;
-  return `z${tp.zone}_a${tp.aisle}`;
+  if (!tp) return null;
+  // Build a key from all tree path values up to and including the target level.
+  // Requires zone to always be present as root.
+  const knownLevels = ['zone', 'aisle', 'row', 'bay', 'shelf', 'loc'];
+  const idx = knownLevels.indexOf(level);
+  if (idx < 0) return null;
+  const parts = [];
+  for (let i = 0; i <= idx; i++) {
+    const l = knownLevels[i];
+    if (tp[l] === undefined) return null;
+    parts.push(`${l[0]}${tp[l]}`);
+  }
+  return parts.join('_');
+}
+
+function _buildGroupIndex(level, index) {
+  index.clear();
+  for (const loc of locations.values()) {
+    const key = _groupKey(loc, level);
+    if (!key) continue;
+    if (!index.has(key)) index.set(key, new Set());
+    index.get(key).add(loc.id);
+  }
+}
+
+function _rebuildIndices() {
+  _buildGroupIndex(vizConfig.wireframeLevel,     wireframeIndex);
+  _buildGroupIndex(vizConfig.hoverLevelLowZoom,  hoverIndexLow);
+  _buildGroupIndex(vizConfig.hoverLevelHighZoom, hoverIndexHigh);
+  groupBoxCache.clear();
+  tileCache.clear();
+  hoveredAisleKey = null;
 }
 
 function _indexLoc(loc) {
-  const key = _aisleKey(loc);
-  if (!key) return;
-  if (!aisleIndex.has(key)) aisleIndex.set(key, new Set());
-  aisleIndex.get(key).add(loc.id);
-  aisleBoxCache.delete(key);  // invalidate cached box
+  const wKey = _groupKey(loc, vizConfig.wireframeLevel);
+  if (wKey) {
+    if (!wireframeIndex.has(wKey)) wireframeIndex.set(wKey, new Set());
+    wireframeIndex.get(wKey).add(loc.id);
+    groupBoxCache.delete(wKey);
+  }
+  const hKeyLow = _groupKey(loc, vizConfig.hoverLevelLowZoom);
+  if (hKeyLow) {
+    if (!hoverIndexLow.has(hKeyLow)) hoverIndexLow.set(hKeyLow, new Set());
+    hoverIndexLow.get(hKeyLow).add(loc.id);
+    groupBoxCache.delete(hKeyLow);
+  }
+  const hKeyHigh = _groupKey(loc, vizConfig.hoverLevelHighZoom);
+  if (hKeyHigh) {
+    if (!hoverIndexHigh.has(hKeyHigh)) hoverIndexHigh.set(hKeyHigh, new Set());
+    hoverIndexHigh.get(hKeyHigh).add(loc.id);
+    groupBoxCache.delete(hKeyHigh);
+  }
 }
 
-function _aisleBox(key) {
-  if (aisleBoxCache.has(key)) return aisleBoxCache.get(key);
-  const ids = aisleIndex.get(key);
+function _groupBox(key, index) {
+  if (groupBoxCache.has(key)) return groupBoxCache.get(key);
+  const ids = index.get(key);
   if (!ids) return null;
   let minX = Infinity, minY = Infinity, minZ = Infinity;
   let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
@@ -269,12 +431,12 @@ function _aisleBox(key) {
     minZ = Math.min(minZ, wz);      maxZ = Math.max(maxZ, wz + dz);
   }
   const box = { minX, minY, minZ, maxX, maxY, maxZ };
-  aisleBoxCache.set(key, box);
+  groupBoxCache.set(key, box);
   return box;
 }
 
-function _aisleOccupancyPct(key) {
-  const ids = aisleIndex.get(key);
+function _groupOccupancyPct(key, index) {
+  const ids = index.get(key);
   if (!ids) return 0;
   let used = 0, cap = 0;
   for (const id of ids) {
@@ -286,10 +448,10 @@ function _aisleOccupancyPct(key) {
   return cap > 0 ? used / cap : 0;
 }
 
-function _drawAisleWireframe(key) {
-  const box = _aisleBox(key);
+function _drawGroupWireframe(key, index) {
+  const box = _groupBox(key, index);
   if (!box) return;
-  const pct = _aisleOccupancyPct(key);
+  const pct = _groupOccupancyPct(key, index);
   // Interpolate between empty (#444c56) and occupied (#3fb950) to match slot colors
   const r = Math.round(0x44 + pct * (0x3f - 0x44));
   const g = Math.round(0x4c + pct * (0xb9 - 0x4c));
@@ -327,19 +489,21 @@ function _drawAisleWireframe(key) {
     ctx.strokeRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
   }
 
-  // Label
+  // Label: show the value of the configured level
   const [lx, ly] = isIso
     ? project((box.minX + box.maxX) / 2, box.minY, box.maxZ)
     : project((box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2, 0);
-  const ids = aisleIndex.get(key);
+  const ids    = index.get(key);
   const sample = ids ? locations.get([...ids][0]) : null;
   if (sample && sample.tree_path) {
-    const tp = sample.tree_path;
+    const tp    = sample.tree_path;
+    const level = index === wireframeIndex ? vizConfig.wireframeLevel : _activeHoverLevel();
+    const val   = tp[level] !== undefined ? tp[level] : key;
     ctx.fillStyle    = stroke;
     ctx.font         = '11px monospace';
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(`Z${tp.zone} A${tp.aisle}`, lx, ly);
+    ctx.fillText(`${level[0].toUpperCase()}${val}`, lx, ly);
   }
 }
 
@@ -482,9 +646,13 @@ function _onZoom() {
   _zoomTimer = setTimeout(() => {
     zooming = false;
     tileCache.clear();   // force rebuild at new scale
+    // If hovered key no longer exists in the active index (LOD crossed threshold), clear it
+    if (hoveredAisleKey && !_activeHoverIndex().has(hoveredAisleKey)) {
+      hoveredAisleKey = null;
+    }
     forceRender();
     // Pre-warm tiles at the new scale so subsequent hovers are instant
-    if (scale >= LOD_DETAIL) _prewarmTiles([...locations.values()]);
+    if (scale >= vizConfig.lodDetailThreshold) _prewarmTiles([...locations.values()]);
   }, 50);
 }
 
@@ -575,10 +743,7 @@ function fitView() {
   forceRender();
 }
 
-// ─── LOD thresholds (pixels per world unit) ───────────────────────────────────
-// < LOD_DETAIL → dot
-// >= LOD_DETAIL → slot detail
-const LOD_DETAIL = 3;
+// LOD_DETAIL is read from vizConfig.lodDetailThreshold at render time.
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
 // forceRender: bypass throttle for interactions (pan, zoom, hover, resize).
@@ -631,10 +796,11 @@ function render() {
   ctx.fillStyle = '#0d1117';
   ctx.fillRect(0, 0, W, H);
 
-  const useDots = scale < LOD_DETAIL;
-  const r = Math.max(1.5, scale * 0.6);
+  const LOD_DETAIL = vizConfig.lodDetailThreshold;
+  const useDots    = vizConfig.dotsAtLowZoom && scale < LOD_DETAIL;
+  const r          = Math.max(1.5, scale * 0.6);
 
-  // Fast path during gesture: dots for everything + aisle wireframes on top
+  // Fast path during gesture: dots for everything + wireframes on top
   if (zooming || panning) {
     const dE = [], dO = [];
     for (const loc of locations.values()) {
@@ -644,36 +810,35 @@ function render() {
       else dE.push(sx, sy);
     }
     _flushDots(dE, dO, r);
-    for (const key of aisleIndex.keys()) _drawAisleWireframe(key);
+    for (const key of wireframeIndex.keys()) _drawGroupWireframe(key, wireframeIndex);
     return;
   }
 
   const dotsEmpty    = [];
   const dotsOccupied = [];
 
-  // At dot-zoom: draw non-hovered aisles as wireframes (they summarise their locs)
-  if (useDots && aisleIndex.size > 0) {
-    for (const key of aisleIndex.keys()) {
-      if (key === hoveredAisleKey) continue;
-      _drawAisleWireframe(key);
-    }
-  }
+  // Always draw wireframe groups at all zoom levels
+  for (const key of wireframeIndex.keys()) _drawGroupWireframe(key, wireframeIndex);
 
   for (const loc of locations.values()) {
     const [sx, sy] = project(...loc.coords);
     if (sx < -300 || sx > W + 300 || sy < -300 || sy > H + 300) continue;
 
-    const locAisleKey   = _aisleKey(loc);
-    const isHoveredAisle = locAisleKey !== null && locAisleKey === hoveredAisleKey;
-    const isHoveredLoc   = loc.id === hoveredLocId;
+    const locHoverKey    = _groupKey(loc, _activeHoverLevel());
+    const isHoveredGroup = locHoverKey !== null && locHoverKey === hoveredAisleKey;
     const occupied       = loc.slots.some(s => s !== null);
 
     if (useDots) {
-      // Dot-zoom: skip aisle locs that belong to a non-hovered aisle (wireframe covers them)
-      if (locAisleKey !== null && !isHoveredAisle) continue;
-      // Show tile for hovered aisle or individual hovered location
-      if (isHoveredAisle || isHoveredLoc) {
-        _drawTile(loc, sx, sy);
+      // Dot-zoom: skip locs covered by a wireframe (unless they're in the hovered group)
+      const locWireKey = _groupKey(loc, vizConfig.wireframeLevel);
+      if (locWireKey !== null && !isHoveredGroup) continue;
+      if (isHoveredGroup) {
+        if (vizConfig.hoverDetail === 'dots') {
+          if (occupied) dotsOccupied.push(sx, sy);
+          else          dotsEmpty.push(sx, sy);
+        } else {
+          _drawTile(loc, sx, sy);
+        }
       } else {
         if (occupied) dotsOccupied.push(sx, sy);
         else          dotsEmpty.push(sx, sy);
@@ -686,8 +851,8 @@ function render() {
 
   _flushDots(dotsEmpty, dotsOccupied, r);
 
-  // Hovered aisle wireframe overlay
-  if (hoveredAisleKey !== null) _drawAisleWireframe(hoveredAisleKey);
+  // Hovered group wireframe overlay
+  if (hoveredAisleKey !== null) _drawGroupWireframe(hoveredAisleKey, _activeHoverIndex());
 }
 
 function drawRect(loc, sx, sy, occupied) {
@@ -906,7 +1071,7 @@ function _drawDetail3D(loc) {
   }
 
   // Location ID — top of x+ (right) face of bounding cube, -30° to follow world -y axis
-  if (scale > 10) {
+  if (scale > 10 && vizConfig.showLocIds) {
     if (isIso) {
       const [lx, ly] = project(wx+dx, wy+dy/2, wz+dz);
       _isoText(String(loc.id), lx, ly, -Math.PI/6, dy * scale * 0.85, 12, 'top', 12/2);
@@ -1050,11 +1215,9 @@ canvas.addEventListener('touchend', e => {
 let _aisleDebounceTimer = null;
 let _pendingAisleKey    = null;
 
-function _prewarmAisle(key) {
-  // Build tiles for every loc in this aisle synchronously during the debounce
-  // window — so the render frame after commit is pure blits, no build cost.
-  if (!key || scale < LOD_DETAIL) return;
-  const ids = aisleIndex.get(key);
+function _prewarmGroup(key) {
+  if (!key || scale < vizConfig.lodDetailThreshold) return;
+  const ids = _activeHoverIndex().get(key);
   if (!ids) return;
   for (const id of ids) {
     const loc = locations.get(id);
@@ -1062,7 +1225,7 @@ function _prewarmAisle(key) {
   }
 }
 
-function _commitAisleKey(key) {
+function _commitHoverKey(key) {
   if (key !== hoveredAisleKey) {
     hoveredAisleKey = key;
     forceRender();
@@ -1082,18 +1245,13 @@ canvas.addEventListener('mousemove', e => {
     if (needsRender) forceRender();
     return;
   }
-  if (hit.id !== hoveredLocId) {
-    hoveredLocId = hit.id;
-    forceRender();
-  }
-  const newKey = _aisleKey(hit);
+  hoveredLocId = hit.id;
+  const newKey = _groupKey(hit, _activeHoverLevel());
   if (newKey !== hoveredAisleKey && newKey !== _pendingAisleKey) {
     _pendingAisleKey = newKey;
     clearTimeout(_aisleDebounceTimer);
-    // Pre-build tiles off the mouse-event thread so we don't block paint,
-    // but still finish well before the 25ms debounce fires.
-    setTimeout(() => _prewarmAisle(newKey), 0);
-    _aisleDebounceTimer = setTimeout(() => _commitAisleKey(newKey), 25);
+    setTimeout(() => _prewarmGroup(newKey), 0);
+    _aisleDebounceTimer = setTimeout(() => _commitHoverKey(newKey), 25);
   }
 
   const used = hit.slots.filter(s => s !== null).length;
@@ -1127,7 +1285,7 @@ canvas.addEventListener('mouseleave', () => {
 });
 
 function hitTest(mx, my) {
-  const threshold = scale < LOD_DETAIL ? 8 : 60;
+  const threshold = scale < vizConfig.lodDetailThreshold ? 8 : 60;
   let hit = null;
   for (const loc of locations.values()) {
     const [sx, sy] = project(...loc.coords);
@@ -1445,6 +1603,52 @@ btnSimStop.addEventListener('click', async () => {
 
 _pollSimStatus(); // one-time fetch on load; updates after that come via sim_status SSE events
 
+// ─── Viz config dialog ────────────────────────────────────────────────────────
+const vizDialogOverlay = document.getElementById('viz-dialog-overlay');
+
+document.getElementById('btn-viz-config').addEventListener('click', () => {
+  vizDialogOverlay.classList.add('visible');
+});
+document.getElementById('viz-dialog-close').addEventListener('click', () => {
+  vizDialogOverlay.classList.remove('visible');
+});
+
+function _applyVizConfig() {
+  _rebuildIndices();
+  tileCache.clear();
+  forceRender();
+}
+
+document.getElementById('viz-wireframe-level').addEventListener('change', e => {
+  vizConfig.wireframeLevel = e.target.value || null;
+  _applyVizConfig();
+});
+document.getElementById('viz-hover-level-low').addEventListener('change', e => {
+  vizConfig.hoverLevelLowZoom = e.target.value || null;
+  _applyVizConfig();
+});
+document.getElementById('viz-hover-level-high').addEventListener('change', e => {
+  vizConfig.hoverLevelHighZoom = e.target.value || null;
+  _applyVizConfig();
+});
+document.getElementById('viz-lod-threshold').addEventListener('change', e => {
+  const v = parseFloat(e.target.value);
+  if (v > 0) { vizConfig.lodDetailThreshold = v; _applyVizConfig(); }
+});
+document.getElementById('viz-hover-detail').addEventListener('change', e => {
+  vizConfig.hoverDetail = e.target.value;
+  forceRender();
+});
+document.getElementById('viz-dots-low-zoom').addEventListener('change', e => {
+  vizConfig.dotsAtLowZoom = e.target.checked;
+  forceRender();
+});
+document.getElementById('viz-show-loc-ids').addEventListener('change', e => {
+  vizConfig.showLocIds = e.target.checked;
+  tileCache.clear();
+  forceRender();
+});
+
 // ─── Confirm modal ────────────────────────────────────────────────────────────
 const confirmOverlay = document.getElementById('confirm-overlay');
 const confirmTitle   = document.getElementById('confirm-title');
@@ -1504,8 +1708,10 @@ document.getElementById('btn-clear-locs').addEventListener('click', async () => 
   await fetch('/v1/locations', { method: 'DELETE' });
   locations.clear();
   containers.clear();
-  aisleIndex.clear();
-  aisleBoxCache.clear();
+  wireframeIndex.clear();
+  hoverIndexLow.clear();
+  hoverIndexHigh.clear();
+  groupBoxCache.clear();
   hoveredAisleKey = null;
   hoveredLocId    = null;
   forceRender();
