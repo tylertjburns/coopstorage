@@ -119,10 +119,11 @@
     #viz-dialog-overlay.visible { display: flex; }
     #viz-dialog-box {
       background: #161b22; border: 1px solid #30363d; border-radius: 8px;
-      padding: 22px 26px; width: 340px; font-family: monospace;
+      padding: 22px 26px; width: 520px; max-height: 90vh; overflow-y: auto;
+      font-family: monospace;
     }
     #viz-dialog-box h3 { color: #e6edf3; font-size: 13px; margin-bottom: 16px; }
-    .viz-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+    .viz-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
     .viz-field label { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; }
     .viz-field input, .viz-field select {
       background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
@@ -135,6 +136,27 @@
     .viz-row { display: flex; gap: 10px; }
     .viz-row .viz-field { flex: 1; }
     #viz-dialog-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+    .viz-tier-section {
+      border: 1px solid #21262d; border-radius: 6px; padding: 12px 14px; margin-bottom: 12px;
+    }
+    .viz-tier-header {
+      font-size: 11px; color: #58a6ff; font-weight: bold; margin-bottom: 10px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .viz-tier-header span { color: #8b949e; font-weight: normal; font-size: 10px; }
+    .viz-tier-header input[type="number"] {
+      background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+      border-radius: 3px; padding: 2px 5px; font-family: monospace; font-size: 11px;
+      width: 52px; text-align: center;
+    }
+    .viz-wf-checks { display: flex; gap: 8px; flex-wrap: wrap; }
+    .viz-wf-checks label {
+      font-size: 11px; color: #c9d1d9; display: flex; align-items: center; gap: 4px;
+      cursor: pointer; text-transform: none; letter-spacing: 0;
+    }
+    .viz-wf-checks input[type="checkbox"] {
+      width: 13px; height: 13px; padding: 0; margin: 0; cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -230,21 +252,62 @@
 <div id="viz-dialog-overlay">
   <div id="viz-dialog-box">
     <h3>Visualization Config</h3>
+
     <div class="viz-row">
-      <div class="viz-field">
-        <label>Wireframe level</label>
-        <select id="viz-wireframe-level">
-          <option value="">None</option>
-          <option value="zone">Zone</option>
-          <option value="aisle" selected>Aisle</option>
-          <option value="row">Row</option>
-          <option value="bay">Bay</option>
-          <option value="shelf">Shelf</option>
-        </select>
+      <div class="viz-field" style="flex:0 0 auto;">
+        <label>Show location IDs</label>
+        <input id="viz-show-loc-ids" type="checkbox" />
+      </div>
+    </div>
+
+    <!-- Low zoom tier -->
+    <div class="viz-tier-section">
+      <div class="viz-tier-header">
+        Low zoom
+        <span>scale &lt; <input id="viz-lod-mid" type="number" min="0.5" max="200" step="0.25" value="1.75" /></span>
       </div>
       <div class="viz-field">
-        <label>Hover level (low zoom)</label>
-        <select id="viz-hover-level-low">
+        <label>Wireframes</label>
+        <div class="viz-wf-checks">
+          <label><input type="checkbox" class="viz-wf-low" value="zone" checked> zone</label>
+          <label><input type="checkbox" class="viz-wf-low" value="aisle" checked> aisle</label>
+          <label><input type="checkbox" class="viz-wf-low" value="row"> row</label>
+          <label><input type="checkbox" class="viz-wf-low" value="bay"> bay</label>
+          <label><input type="checkbox" class="viz-wf-low" value="shelf"> shelf</label>
+        </div>
+      </div>
+      <div class="viz-row">
+        <div class="viz-field">
+          <label>Hover level</label>
+          <select id="viz-hover-level-low">
+            <option value="">None</option>
+            <option value="zone">Zone</option>
+            <option value="aisle" selected>Aisle</option>
+            <option value="row">Row</option>
+            <option value="bay">Bay</option>
+            <option value="shelf">Shelf</option>
+          </select>
+        </div>
+        <div class="viz-field">
+          <label>Hover detail</label>
+          <select id="viz-hover-detail-low">
+            <option value="none">None</option>
+            <option value="dots" selected>Dots</option>
+            <option value="tiles">Tiles</option>
+          </select>
+        </div>
+        <div class="viz-field">
+          <label>Loc display</label>
+          <select id="viz-locs-low">
+            <option value="none" selected>None</option>
+            <option value="dots">Dots</option>
+            <option value="grey">Grey tiles</option>
+          </select>
+        </div>
+      </div>
+      <div class="viz-field" id="viz-wf-hover-row-low">
+        <label>Hover wireframe level</label>
+        <select id="viz-wf-hover-level-low">
           <option value="">None</option>
           <option value="zone">Zone</option>
           <option value="aisle">Aisle</option>
@@ -254,10 +317,55 @@
         </select>
       </div>
     </div>
-    <div class="viz-row">
+
+    <!-- Mid zoom tier -->
+    <div class="viz-tier-section">
+      <div class="viz-tier-header">
+        Mid zoom
+        <span>scale &lt; <input id="viz-lod-high" type="number" min="0.5" max="200" step="0.5" value="4" /></span>
+      </div>
       <div class="viz-field">
-        <label>Hover level (high zoom)</label>
-        <select id="viz-hover-level-high">
+        <label>Wireframes</label>
+        <div class="viz-wf-checks">
+          <label><input type="checkbox" class="viz-wf-mid" value="zone"> zone</label>
+          <label><input type="checkbox" class="viz-wf-mid" value="aisle" checked> aisle</label>
+          <label><input type="checkbox" class="viz-wf-mid" value="row"> row</label>
+          <label><input type="checkbox" class="viz-wf-mid" value="bay"> bay</label>
+          <label><input type="checkbox" class="viz-wf-mid" value="shelf"> shelf</label>
+        </div>
+      </div>
+      <div class="viz-row">
+        <div class="viz-field">
+          <label>Hover level</label>
+          <select id="viz-hover-level-mid">
+            <option value="">None</option>
+            <option value="zone">Zone</option>
+            <option value="aisle">Aisle</option>
+            <option value="row" selected>Row</option>
+            <option value="bay">Bay</option>
+            <option value="shelf">Shelf</option>
+          </select>
+        </div>
+        <div class="viz-field">
+          <label>Hover detail</label>
+          <select id="viz-hover-detail-mid">
+            <option value="none">None</option>
+            <option value="dots" selected>Dots</option>
+            <option value="tiles">Tiles</option>
+          </select>
+        </div>
+        <div class="viz-field">
+          <label>Loc display</label>
+          <select id="viz-locs-mid">
+            <option value="none">None</option>
+            <option value="dots" selected>Dots</option>
+            <option value="grey">Grey tiles</option>
+          </select>
+        </div>
+      </div>
+      <div class="viz-field" id="viz-wf-hover-row-mid">
+        <label>Hover wireframe level</label>
+        <select id="viz-wf-hover-level-mid">
           <option value="">None</option>
           <option value="zone">Zone</option>
           <option value="aisle">Aisle</option>
@@ -266,30 +374,63 @@
           <option value="shelf">Shelf</option>
         </select>
       </div>
-      <div class="viz-field">
-        <label>LOD detail threshold</label>
-        <input id="viz-lod-threshold" type="number" min="0.5" max="50" step="0.5" value="3" />
-      </div>
     </div>
-    <div class="viz-row">
+
+    <!-- High zoom tier -->
+    <div class="viz-tier-section">
+      <div class="viz-tier-header">High zoom</div>
       <div class="viz-field">
-        <label>Hover detail</label>
-        <select id="viz-hover-detail">
-          <option value="tiles" selected>Tiles</option>
-          <option value="dots">Dots</option>
+        <label>Wireframes</label>
+        <div class="viz-wf-checks">
+          <label><input type="checkbox" class="viz-wf-high" value="zone"> zone</label>
+          <label><input type="checkbox" class="viz-wf-high" value="aisle"> aisle</label>
+          <label><input type="checkbox" class="viz-wf-high" value="row" checked> row</label>
+          <label><input type="checkbox" class="viz-wf-high" value="bay" checked> bay</label>
+          <label><input type="checkbox" class="viz-wf-high" value="shelf"> shelf</label>
+        </div>
+      </div>
+      <div class="viz-row">
+        <div class="viz-field">
+          <label>Hover level</label>
+          <select id="viz-hover-level-high">
+            <option value="">None</option>
+            <option value="zone">Zone</option>
+            <option value="aisle">Aisle</option>
+            <option value="row">Row</option>
+            <option value="bay" selected>Bay</option>
+            <option value="shelf">Shelf</option>
+          </select>
+        </div>
+        <div class="viz-field">
+          <label>Hover detail</label>
+          <select id="viz-hover-detail-high">
+            <option value="none">None</option>
+            <option value="dots">Dots</option>
+            <option value="tiles" selected>Tiles</option>
+          </select>
+        </div>
+        <div class="viz-field">
+          <label>Loc display</label>
+          <select id="viz-locs-high">
+            <option value="none">None</option>
+            <option value="dots">Dots</option>
+            <option value="grey" selected>Grey tiles</option>
+          </select>
+        </div>
+      </div>
+      <div class="viz-field" id="viz-wf-hover-row-high">
+        <label>Hover wireframe level</label>
+        <select id="viz-wf-hover-level-high">
+          <option value="">None</option>
+          <option value="zone">Zone</option>
+          <option value="aisle" selected>Aisle</option>
+          <option value="row">Row</option>
+          <option value="bay">Bay</option>
+          <option value="shelf">Shelf</option>
         </select>
       </div>
     </div>
-    <div class="viz-row">
-      <div class="viz-field">
-        <label>Dots at low zoom</label>
-        <input id="viz-dots-low-zoom" type="checkbox" checked />
-      </div>
-      <div class="viz-field">
-        <label>Show location IDs</label>
-        <input id="viz-show-loc-ids" type="checkbox" />
-      </div>
-    </div>
+
     <div id="viz-dialog-buttons">
       <button class="btn" id="viz-dialog-close">Close</button>
     </div>
@@ -328,32 +469,51 @@ const locations  = new Map();
 const containers = new Map();   // flat container registry
 
 // ─── Viz config ───────────────────────────────────────────────────────────────
+// Three zoom tiers. lodMidThreshold separates low from mid; lodHighThreshold separates mid from high.
 const vizConfig = {
-  wireframeLevel:      'aisle',  // tree level key for wireframe grouping (null = none)
-  hoverLevelLowZoom:   'row',    // hover expand level when scale < lodDetailThreshold
-  hoverLevelHighZoom:  'bay',    // hover expand level when scale >= lodDetailThreshold
-  dotsAtLowZoom:       true,     // show dots when scale < lodDetailThreshold
-  lodDetailThreshold:  3,        // scale at which slot tiles appear
-  showLocIds:          false,    // show location ID labels inside tiles
-  hoverDetail:         'tiles',  // 'tiles' or 'dots' for hovered group
+  lodMidThreshold:  1.75,  // scale: below → low tier
+  lodHighThreshold: 4,     // scale: above → high tier (between the two = mid)
+  showLocIds:       false,
+  tiers: {
+    low: {
+      wireframeLevels:     ['zone', 'aisle'],
+      hoverLevel:          'aisle',
+      hoverDetail:         'dots',
+      hoverWireframeLevel: 'row',
+      locsDisplay:         'none',
+    },
+    mid: {
+      wireframeLevels:     ['aisle'],
+      hoverLevel:          'row',
+      hoverDetail:         'dots',
+      hoverWireframeLevel: 'bay',
+      locsDisplay:         'dots',
+    },
+    high: {
+      wireframeLevels:     ['row', 'bay'],
+      hoverLevel:          'bay',
+      hoverDetail:         'tiles',
+      hoverWireframeLevel: 'aisle',
+      locsDisplay:         'grey',
+    },
+  },
 };
 
 // ─── Group index ──────────────────────────────────────────────────────────────
-// groupKey(loc, level) → string key for a tree level (e.g. 'aisle', 'row')
-// wireframeIndex: key → Set of loc_ids for wireframe grouping
-// hoverIndexLow / hoverIndexHigh: key → Set of loc_ids for hover expansion at each LOD
-// groupBoxCache: key → bounding box (invalidated on loc registration)
-const wireframeIndex  = new Map();
-const hoverIndexLow   = new Map();   // used when scale < lodDetailThreshold
-const hoverIndexHigh  = new Map();   // used when scale >= lodDetailThreshold
-const groupBoxCache   = new Map();
+// wireframeIndices: Map<level, Map<key, Set<locId>>>  — one index per wireframe level in use
+// hoverIndices:     Map<level, Map<key, Set<locId>>>  — one index per hover level in use
+// groupBoxCache:    key → bounding box (invalidated on loc registration)
+const wireframeIndices = new Map();
+const hoverIndices     = new Map();
+const groupBoxCache    = new Map();
 
-function _activeHoverIndex() {
-  return scale < vizConfig.lodDetailThreshold ? hoverIndexLow : hoverIndexHigh;
+function _activeTier() {
+  if (scale >= vizConfig.lodHighThreshold) return 'high';
+  if (scale >= vizConfig.lodMidThreshold)  return 'mid';
+  return 'low';
 }
-function _activeHoverLevel() {
-  return scale < vizConfig.lodDetailThreshold ? vizConfig.hoverLevelLowZoom : vizConfig.hoverLevelHighZoom;
-}
+function _activeTierConfig() { return vizConfig.tiers[_activeTier()]; }
+
 let   hoveredAisleKey = null;   // key into the active hover index for the hovered group
 let   hoveredLocId    = null;
 
@@ -375,6 +535,21 @@ function _groupKey(loc, level) {
   return parts.join('_');
 }
 
+function _uniqueLevels(indexMap) {
+  // Collect all unique levels referenced across all tiers for a given Map (wireframe or hover).
+  const levels = new Set();
+  for (const tc of Object.values(vizConfig.tiers)) {
+    if (indexMap === wireframeIndices) {
+      for (const l of tc.wireframeLevels) if (l) levels.add(l);
+      // hoverWireframeLevel entries also need a wireframe index so they can be drawn on hover
+      if (tc.hoverWireframeLevel) levels.add(tc.hoverWireframeLevel);
+    } else {
+      if (tc.hoverLevel) levels.add(tc.hoverLevel);
+    }
+  }
+  return levels;
+}
+
 function _buildGroupIndex(level, index) {
   index.clear();
   for (const loc of locations.values()) {
@@ -386,32 +561,37 @@ function _buildGroupIndex(level, index) {
 }
 
 function _rebuildIndices() {
-  _buildGroupIndex(vizConfig.wireframeLevel,     wireframeIndex);
-  _buildGroupIndex(vizConfig.hoverLevelLowZoom,  hoverIndexLow);
-  _buildGroupIndex(vizConfig.hoverLevelHighZoom, hoverIndexHigh);
+  wireframeIndices.clear();
+  hoverIndices.clear();
+  for (const level of _uniqueLevels(wireframeIndices)) {
+    const idx = new Map();
+    _buildGroupIndex(level, idx);
+    wireframeIndices.set(level, idx);
+  }
+  for (const level of _uniqueLevels(hoverIndices)) {
+    const idx = new Map();
+    _buildGroupIndex(level, idx);
+    hoverIndices.set(level, idx);
+  }
   groupBoxCache.clear();
   tileCache.clear();
   hoveredAisleKey = null;
 }
 
 function _indexLoc(loc) {
-  const wKey = _groupKey(loc, vizConfig.wireframeLevel);
-  if (wKey) {
-    if (!wireframeIndex.has(wKey)) wireframeIndex.set(wKey, new Set());
-    wireframeIndex.get(wKey).add(loc.id);
-    groupBoxCache.delete(wKey);
+  for (const [level, idx] of wireframeIndices) {
+    const key = _groupKey(loc, level);
+    if (!key) continue;
+    if (!idx.has(key)) idx.set(key, new Set());
+    idx.get(key).add(loc.id);
+    groupBoxCache.delete(key);
   }
-  const hKeyLow = _groupKey(loc, vizConfig.hoverLevelLowZoom);
-  if (hKeyLow) {
-    if (!hoverIndexLow.has(hKeyLow)) hoverIndexLow.set(hKeyLow, new Set());
-    hoverIndexLow.get(hKeyLow).add(loc.id);
-    groupBoxCache.delete(hKeyLow);
-  }
-  const hKeyHigh = _groupKey(loc, vizConfig.hoverLevelHighZoom);
-  if (hKeyHigh) {
-    if (!hoverIndexHigh.has(hKeyHigh)) hoverIndexHigh.set(hKeyHigh, new Set());
-    hoverIndexHigh.get(hKeyHigh).add(loc.id);
-    groupBoxCache.delete(hKeyHigh);
+  for (const [level, idx] of hoverIndices) {
+    const key = _groupKey(loc, level);
+    if (!key) continue;
+    if (!idx.has(key)) idx.set(key, new Set());
+    idx.get(key).add(loc.id);
+    groupBoxCache.delete(key);
   }
 }
 
@@ -448,7 +628,7 @@ function _groupOccupancyPct(key, index) {
   return cap > 0 ? used / cap : 0;
 }
 
-function _drawGroupWireframe(key, index) {
+function _drawGroupWireframe(key, index, level) {
   const box = _groupBox(key, index);
   if (!box) return;
   const pct = _groupOccupancyPct(key, index);
@@ -497,8 +677,7 @@ function _drawGroupWireframe(key, index) {
   const sample = ids ? locations.get([...ids][0]) : null;
   if (sample && sample.tree_path) {
     const tp    = sample.tree_path;
-    const level = index === wireframeIndex ? vizConfig.wireframeLevel : _activeHoverLevel();
-    const val   = tp[level] !== undefined ? tp[level] : key;
+    const val = tp[level] !== undefined ? tp[level] : key;
     ctx.fillStyle    = stroke;
     ctx.font         = '11px monospace';
     ctx.textAlign    = 'center';
@@ -632,7 +811,7 @@ function _buildTile(loc) {
 }
 
 function _getTile(loc) {
-  const key = _locStateKey(loc);
+  const key    = _locStateKey(loc);
   const cached = _tileCacheGet(loc.id);
   if (cached && cached.key === key) return cached;
   const tile = _buildTile(loc);
@@ -646,13 +825,17 @@ function _onZoom() {
   _zoomTimer = setTimeout(() => {
     zooming = false;
     tileCache.clear();   // force rebuild at new scale
-    // If hovered key no longer exists in the active index (LOD crossed threshold), clear it
-    if (hoveredAisleKey && !_activeHoverIndex().has(hoveredAisleKey)) {
+    // If hovered key no longer exists in the active tier's hover index, clear it
+    const tc      = _activeTierConfig();
+    const hoverIdx = hoverIndices.get(tc.hoverLevel);
+    if (hoveredAisleKey && (!hoverIdx || !hoverIdx.has(hoveredAisleKey))) {
       hoveredAisleKey = null;
     }
     forceRender();
-    // Pre-warm tiles at the new scale so subsequent hovers are instant
-    if (scale >= vizConfig.lodDetailThreshold) _prewarmTiles([...locations.values()]);
+    // Pre-warm tiles at the new scale (only for hover-detail=tiles tier, grey uses direct draw)
+    if (tc.hoverDetail === 'tiles') {
+      _prewarmTiles([...locations.values()]);
+    }
   }, 50);
 }
 
@@ -743,7 +926,7 @@ function fitView() {
   forceRender();
 }
 
-// LOD_DETAIL is read from vizConfig.lodDetailThreshold at render time.
+// LOD thresholds are read from vizConfig.lodMidThreshold / lodHighThreshold via _activeTier().
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
 // forceRender: bypass throttle for interactions (pan, zoom, hover, resize).
@@ -781,6 +964,21 @@ function _flushDots(dotsEmpty, dotsOccupied, r) {
   }
 }
 
+// Fast grey draw: just the location bounding box with occupied/empty color.
+// No slot loop, no tile cache — O(1) canvas calls per location.
+function _drawLocGrey(loc) {
+  const [wx, wy, wz] = loc.coords;
+  const [dx, dy, dz] = loc.meta.dims;
+  const occupied = loc.slots.some(s => s !== null);
+  const fill   = occupied ? 'rgba(20,36,20,0.85)' : 'rgba(20,22,26,0.85)';
+  const stroke = occupied ? '#2a4a2a' : '#2a2f38';
+  if (isIso) {
+    drawIsoCube(wx, wy, wz, dx, dy, dz, fill, fill, fill, stroke);
+  } else {
+    drawTopBox(wx, wy, dx, dy, fill, stroke);
+  }
+}
+
 function _drawTile(loc, sx, sy) {
   if (!loc.slot_dims) {
     drawDetail(loc, sx, sy);
@@ -796,11 +994,10 @@ function render() {
   ctx.fillStyle = '#0d1117';
   ctx.fillRect(0, 0, W, H);
 
-  const LOD_DETAIL = vizConfig.lodDetailThreshold;
-  const useDots    = vizConfig.dotsAtLowZoom && scale < LOD_DETAIL;
-  const r          = Math.max(1.5, scale * 0.6);
+  const tc = _activeTierConfig();
+  const r  = Math.max(1.5, scale * 0.6);
 
-  // Fast path during gesture: dots for everything + wireframes on top
+  // Fast path during gesture: dots + first wireframe level only
   if (zooming || panning) {
     const dE = [], dO = [];
     for (const loc of locations.values()) {
@@ -810,53 +1007,80 @@ function render() {
       else dE.push(sx, sy);
     }
     _flushDots(dE, dO, r);
-    for (const key of wireframeIndex.keys()) _drawGroupWireframe(key, wireframeIndex);
+    if (tc.wireframeLevels.length > 0) {
+      const firstIdx = wireframeIndices.get(tc.wireframeLevels[0]);
+      if (firstIdx) for (const [key] of firstIdx) _drawGroupWireframe(key, firstIdx, tc.wireframeLevels[0]);
+    }
     return;
   }
 
+  // Draw all wireframe levels for this tier
+  for (const level of tc.wireframeLevels) {
+    const idx = wireframeIndices.get(level);
+    if (idx) for (const [key] of idx) _drawGroupWireframe(key, idx, level);
+  }
+
+  const hoverIdx   = hoverIndices.get(tc.hoverLevel);
   const dotsEmpty    = [];
   const dotsOccupied = [];
-
-  // Always draw wireframe groups at all zoom levels
-  for (const key of wireframeIndex.keys()) _drawGroupWireframe(key, wireframeIndex);
 
   for (const loc of locations.values()) {
     const [sx, sy] = project(...loc.coords);
     if (sx < -300 || sx > W + 300 || sy < -300 || sy > H + 300) continue;
 
-    const locHoverKey    = _groupKey(loc, _activeHoverLevel());
+    const locHoverKey    = _groupKey(loc, tc.hoverLevel);
     const isHoveredGroup = locHoverKey !== null && locHoverKey === hoveredAisleKey;
     const occupied       = loc.slots.some(s => s !== null);
 
-    if (useDots) {
-      // Dot-zoom: skip locs covered by a wireframe (unless they're in the hovered group)
-      const locWireKey = _groupKey(loc, vizConfig.wireframeLevel);
-      if (locWireKey !== null && !isHoveredGroup) continue;
-      if (isHoveredGroup) {
-        if (vizConfig.hoverDetail === 'dots') {
-          if (occupied) dotsOccupied.push(sx, sy);
-          else          dotsEmpty.push(sx, sy);
-        } else {
-          _drawTile(loc, sx, sy);
-        }
-      } else {
+    if (isHoveredGroup) {
+      if (tc.hoverDetail === 'dots') {
         if (occupied) dotsOccupied.push(sx, sy);
         else          dotsEmpty.push(sx, sy);
+      } else if (tc.hoverDetail === 'tiles') {
+        _drawTile(loc, sx, sy);
+      } else {
+        // 'none' — render hovered locs the same as the background locsDisplay
+        if (tc.locsDisplay === 'none') continue;
+        if (tc.locsDisplay === 'dots') {
+          if (occupied) dotsOccupied.push(sx, sy);
+          else          dotsEmpty.push(sx, sy);
+        } else if (tc.locsDisplay === 'grey') {
+          _drawLocGrey(loc);
+        }
       }
     } else {
-      // Detail zoom: render tiles for all visible locations
-      _drawTile(loc, sx, sy);
+      if (tc.locsDisplay === 'none') continue;
+      if (tc.locsDisplay === 'dots') {
+        if (occupied) dotsOccupied.push(sx, sy);
+        else          dotsEmpty.push(sx, sy);
+      } else if (tc.locsDisplay === 'grey') {
+        _drawLocGrey(loc);
+      }
     }
   }
 
   _flushDots(dotsEmpty, dotsOccupied, r);
 
-  // Hovered group wireframe overlay
-  if (hoveredAisleKey !== null) _drawGroupWireframe(hoveredAisleKey, _activeHoverIndex());
+  // Hovered group wireframe overlay (drawn on top)
+  if (hoveredAisleKey !== null && hoverIdx) {
+    _drawGroupWireframe(hoveredAisleKey, hoverIdx, tc.hoverLevel);
+    // Independent of hoverDetail: draw sub-level wireframes within the hovered group
+    if (tc.hoverWireframeLevel) {
+      const wfIdx     = wireframeIndices.get(tc.hoverWireframeLevel);
+      const hoverLocs = hoverIdx.get(hoveredAisleKey);
+      if (wfIdx && hoverLocs) {
+        for (const [key, keyLocIds] of wfIdx) {
+          for (const id of keyLocIds) {
+            if (hoverLocs.has(id)) { _drawGroupWireframe(key, wfIdx, tc.hoverWireframeLevel); break; }
+          }
+        }
+      }
+    }
+  }
 }
 
 function drawRect(loc, sx, sy, occupied) {
-  const factor = Math.min(scale / LOD_MID, 3);
+  const factor = Math.min(scale / vizConfig.lodMidThreshold, 3);
   const w = 36 * factor, h = 20 * factor;
   const x0 = sx - w / 2, y0 = sy - h / 2;
 
@@ -1006,7 +1230,7 @@ function _drawDetail3D(loc) {
     const cid = loc.slots[i];
     const occ = cid !== null;
 
-    const isAddable  = loc.addable_slots  && loc.addable_slots.includes(i);
+    const isAddable   = loc.addable_slots   && loc.addable_slots.includes(i);
     const isRemovable = loc.removable_slots && loc.removable_slots.includes(i);
 
     if (isIso) {
@@ -1216,12 +1440,15 @@ let _aisleDebounceTimer = null;
 let _pendingAisleKey    = null;
 
 function _prewarmGroup(key) {
-  if (!key || scale < vizConfig.lodDetailThreshold) return;
-  const ids = _activeHoverIndex().get(key);
+  const tc = _activeTierConfig();
+  if (!key || tc.hoverDetail !== 'tiles') return;
+  const idx = hoverIndices.get(tc.hoverLevel);
+  if (!idx) return;
+  const ids = idx.get(key);
   if (!ids) return;
   for (const id of ids) {
     const loc = locations.get(id);
-    if (loc && loc.slot_dims) _getTile(loc);
+    if (loc && loc.slot_dims) _getTile(loc, false);
   }
 }
 
@@ -1246,7 +1473,7 @@ canvas.addEventListener('mousemove', e => {
     return;
   }
   hoveredLocId = hit.id;
-  const newKey = _groupKey(hit, _activeHoverLevel());
+  const newKey = _groupKey(hit, _activeTierConfig().hoverLevel);
   if (newKey !== hoveredAisleKey && newKey !== _pendingAisleKey) {
     _pendingAisleKey = newKey;
     clearTimeout(_aisleDebounceTimer);
@@ -1285,7 +1512,7 @@ canvas.addEventListener('mouseleave', () => {
 });
 
 function hitTest(mx, my) {
-  const threshold = scale < vizConfig.lodDetailThreshold ? 8 : 60;
+  const threshold = _activeTier() === 'low' ? 8 : 60;
   let hit = null;
   for (const loc of locations.values()) {
     const [sx, sy] = project(...loc.coords);
@@ -1435,7 +1662,8 @@ async function loadSnapshot() {
 
   statusEl.textContent = `${locations.size.toLocaleString()} locations loaded`;
   fitView();
-  _prewarmTiles([...locations.values()]);
+  const tc0 = _activeTierConfig();
+  if (tc0.hoverDetail === 'tiles') _prewarmTiles([...locations.values()]);
 }
 
 let _prewarmGeneration = 0;  // incremented to cancel in-flight prewarms
@@ -1515,6 +1743,8 @@ async function boot() {
   }
 }
 
+// Initialize index structure so _indexLoc has level-keyed Maps to add into during snapshot load
+_rebuildIndices();
 boot();
 
 // ─── Simulation controls ──────────────────────────────────────────────────────
@@ -1619,30 +1849,52 @@ function _applyVizConfig() {
   forceRender();
 }
 
-document.getElementById('viz-wireframe-level').addEventListener('change', e => {
-  vizConfig.wireframeLevel = e.target.value || null;
-  _applyVizConfig();
-});
-document.getElementById('viz-hover-level-low').addEventListener('change', e => {
-  vizConfig.hoverLevelLowZoom = e.target.value || null;
-  _applyVizConfig();
-});
-document.getElementById('viz-hover-level-high').addEventListener('change', e => {
-  vizConfig.hoverLevelHighZoom = e.target.value || null;
-  _applyVizConfig();
-});
-document.getElementById('viz-lod-threshold').addEventListener('change', e => {
+function _readWfChecks(cls) {
+  return [...document.querySelectorAll(`.${cls}:checked`)].map(cb => cb.value);
+}
+
+// Wireframe checkboxes
+for (const [tier, cls] of [['low','viz-wf-low'],['mid','viz-wf-mid'],['high','viz-wf-high']]) {
+  for (const cb of document.querySelectorAll(`.${cls}`)) {
+    cb.addEventListener('change', () => {
+      vizConfig.tiers[tier].wireframeLevels = _readWfChecks(cls);
+      _applyVizConfig();
+    });
+  }
+}
+
+// Thresholds
+document.getElementById('viz-lod-mid').addEventListener('change', e => {
   const v = parseFloat(e.target.value);
-  if (v > 0) { vizConfig.lodDetailThreshold = v; _applyVizConfig(); }
+  if (v > 0) { vizConfig.lodMidThreshold = v; _applyVizConfig(); }
 });
-document.getElementById('viz-hover-detail').addEventListener('change', e => {
-  vizConfig.hoverDetail = e.target.value;
-  forceRender();
+document.getElementById('viz-lod-high').addEventListener('change', e => {
+  const v = parseFloat(e.target.value);
+  if (v > 0) { vizConfig.lodHighThreshold = v; _applyVizConfig(); }
 });
-document.getElementById('viz-dots-low-zoom').addEventListener('change', e => {
-  vizConfig.dotsAtLowZoom = e.target.checked;
-  forceRender();
-});
+
+// Per-tier hover level / detail / locs display / hover wireframe level
+for (const tier of ['low', 'mid', 'high']) {
+  document.getElementById(`viz-hover-level-${tier}`).addEventListener('change', e => {
+    vizConfig.tiers[tier].hoverLevel = e.target.value || null;
+    _applyVizConfig();
+  });
+  document.getElementById(`viz-hover-detail-${tier}`).addEventListener('change', e => {
+    vizConfig.tiers[tier].hoverDetail = e.target.value;
+    forceRender();
+  });
+  document.getElementById(`viz-locs-${tier}`).addEventListener('change', e => {
+    vizConfig.tiers[tier].locsDisplay = e.target.value;
+    tileCache.clear();
+    forceRender();
+  });
+  document.getElementById(`viz-wf-hover-level-${tier}`).addEventListener('change', e => {
+    vizConfig.tiers[tier].hoverWireframeLevel = e.target.value || null;
+    _applyVizConfig();
+  });
+}
+
+// Show loc IDs
 document.getElementById('viz-show-loc-ids').addEventListener('change', e => {
   vizConfig.showLocIds = e.target.checked;
   tileCache.clear();
@@ -1708,9 +1960,8 @@ document.getElementById('btn-clear-locs').addEventListener('click', async () => 
   await fetch('/v1/locations', { method: 'DELETE' });
   locations.clear();
   containers.clear();
-  wireframeIndex.clear();
-  hoverIndexLow.clear();
-  hoverIndexHigh.clear();
+  wireframeIndices.clear();
+  hoverIndices.clear();
   groupBoxCache.clear();
   hoveredAisleKey = null;
   hoveredLocId    = null;

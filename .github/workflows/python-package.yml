@@ -6,8 +6,18 @@ name: Python package
 on:
   push:
     branches: [ "master" ]
+    paths:
+      - 'coopstorage/**'
+      - 'tests/**'
+      - 'setup.py'
+      - 'requirements.txt'
   pull_request:
     branches: [ "master" ]
+    paths:
+      - 'coopstorage/**'
+      - 'tests/**'
+      - 'setup.py'
+      - 'requirements.txt'
 
 jobs:
   build:

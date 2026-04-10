@@ -71,7 +71,7 @@ def run_simulation(
     if ops_counter is None:
         ops_counter = [0]
     if dest_loc_evaluator is None:
-        dest_loc_evaluator = evaluators.fewest_containers
+        dest_loc_evaluator = evaluators.random_score
 
     container_counter = 0
     max_concurrent    = sum(loc.Capacity for loc in storage.Locations.values())
