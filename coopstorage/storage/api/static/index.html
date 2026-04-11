@@ -576,6 +576,8 @@ function _rebuildIndices() {
   groupBoxCache.clear();
   tileCache.clear();
   hoveredAisleKey = null;
+  _markBgDirty();
+  _rebuildHitGrid();
 }
 
 function _indexLoc(loc) {
@@ -825,6 +827,8 @@ function _onZoom() {
   _zoomTimer = setTimeout(() => {
     zooming = false;
     tileCache.clear();   // force rebuild at new scale
+    _markBgDirty();
+    _rebuildHitGrid();
     // If hovered key no longer exists in the active tier's hover index, clear it
     const tc      = _activeTierConfig();
     const hoverIdx = hoverIndices.get(tc.hoverLevel);
@@ -837,6 +841,60 @@ function _onZoom() {
       _prewarmTiles([...locations.values()]);
     }
   }, 50);
+}
+
+// ─── Background layer cache ───────────────────────────────────────────────────
+// Wireframes + all-locs (locsDisplay) painted once into an OffscreenCanvas.
+// Blitted in one drawImage call per frame; only rebuilt when viewport or data changes.
+// Hover overlay (the changing part) is drawn on top each frame.
+let _bgCanvas = null;
+let _bgDirty  = true;
+
+function _markBgDirty() { _bgDirty = true; }
+
+function _ensureBgCanvas() {
+  if (!_bgCanvas || _bgCanvas.width !== W || _bgCanvas.height !== H) {
+    _bgCanvas = new OffscreenCanvas(W, H);
+    _bgDirty  = true;
+  }
+}
+
+function _paintBackground(tc) {
+  _ensureBgCanvas();
+  if (!_bgDirty) return;
+  _bgDirty = false;
+
+  // Redirect all draw calls to the offscreen canvas
+  const savedCtx = ctx;
+  ctx = _bgCanvas.getContext('2d');   // eslint-disable-line no-global-assign
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Wireframes
+  for (const level of tc.wireframeLevels) {
+    const idx = wireframeIndices.get(level);
+    if (idx) for (const [key] of idx) _drawGroupWireframe(key, idx, level);
+  }
+
+  // All locs using locsDisplay (no hover distinction — hover drawn on top)
+  if (tc.locsDisplay !== 'none') {
+    const r = Math.max(1.5, scale * 0.6);
+    const dotsEmpty = [], dotsOccupied = [];
+    for (const loc of locations.values()) {
+      const [sx, sy] = project(...loc.coords);
+      if (sx < -300 || sx > W + 300 || sy < -300 || sy > H + 300) continue;
+      const occupied = loc.slots.some(s => s !== null);
+      if (tc.locsDisplay === 'dots') {
+        if (occupied) dotsOccupied.push(sx, sy);
+        else          dotsEmpty.push(sx, sy);
+      } else {   // 'grey'
+        _drawLocGrey(loc);
+      }
+    }
+    if (tc.locsDisplay === 'dots') _flushDots(dotsEmpty, dotsOccupied, r);
+  }
+
+  ctx = savedCtx;   // eslint-disable-line no-global-assign
 }
 
 // ─── Canvas setup ─────────────────────────────────────────────────────────────
@@ -874,6 +932,7 @@ function _queueEvent(msg) {
 function resize() {
   W = canvas.width  = window.innerWidth;
   H = canvas.height = window.innerHeight;
+  _markBgDirty();
   forceRender();
 }
 window.addEventListener('resize', resize);
@@ -923,6 +982,8 @@ function fitView() {
   scale = Math.max(scale, 0.01);
   panX  = W / 2 - ((minX + maxX) / 2) * scale;
   panY  = H / 2 - ((minY + maxY) / 2) * scale;
+  _markBgDirty();
+  _rebuildHitGrid();
   forceRender();
 }
 
@@ -1014,64 +1075,44 @@ function render() {
     return;
   }
 
-  // Draw all wireframe levels for this tier
-  for (const level of tc.wireframeLevels) {
-    const idx = wireframeIndices.get(level);
-    if (idx) for (const [key] of idx) _drawGroupWireframe(key, idx, level);
-  }
+  // ── Background layer (cached) ─────────────────────────────────────────────
+  // Wireframes + all locs drawn per locsDisplay — rebuilt only when viewport
+  // or data changes, not on every hover event.
+  _paintBackground(tc);
+  ctx.drawImage(_bgCanvas, 0, 0);
 
-  const hoverIdx   = hoverIndices.get(tc.hoverLevel);
-  const dotsEmpty    = [];
-  const dotsOccupied = [];
-
-  for (const loc of locations.values()) {
-    const [sx, sy] = project(...loc.coords);
-    if (sx < -300 || sx > W + 300 || sy < -300 || sy > H + 300) continue;
-
-    const locHoverKey    = _groupKey(loc, tc.hoverLevel);
-    const isHoveredGroup = locHoverKey !== null && locHoverKey === hoveredAisleKey;
-    const occupied       = loc.slots.some(s => s !== null);
-
-    if (isHoveredGroup) {
-      if (tc.hoverDetail === 'dots') {
-        if (occupied) dotsOccupied.push(sx, sy);
-        else          dotsEmpty.push(sx, sy);
-      } else if (tc.hoverDetail === 'tiles') {
-        _drawTile(loc, sx, sy);
-      } else {
-        // 'none' — render hovered locs the same as the background locsDisplay
-        if (tc.locsDisplay === 'none') continue;
-        if (tc.locsDisplay === 'dots') {
+  // ── Hover overlay (cheap — only the hovered group's locs) ─────────────────
+  const hoverIdx = hoverIndices.get(tc.hoverLevel);
+  if (hoveredAisleKey !== null && hoverIdx) {
+    const hoverLocs = hoverIdx.get(hoveredAisleKey);
+    if (hoverLocs) {
+      const dotsEmpty = [], dotsOccupied = [];
+      for (const id of hoverLocs) {
+        const loc = locations.get(id);
+        if (!loc) continue;
+        const [sx, sy] = project(...loc.coords);
+        if (sx < -300 || sx > W + 300 || sy < -300 || sy > H + 300) continue;
+        const occupied = loc.slots.some(s => s !== null);
+        if (tc.hoverDetail === 'dots') {
           if (occupied) dotsOccupied.push(sx, sy);
           else          dotsEmpty.push(sx, sy);
-        } else if (tc.locsDisplay === 'grey') {
-          _drawLocGrey(loc);
+        } else if (tc.hoverDetail === 'tiles') {
+          _drawTile(loc, sx, sy);
         }
+        // 'none': hovered locs show through from background unchanged
       }
-    } else {
-      if (tc.locsDisplay === 'none') continue;
-      if (tc.locsDisplay === 'dots') {
-        if (occupied) dotsOccupied.push(sx, sy);
-        else          dotsEmpty.push(sx, sy);
-      } else if (tc.locsDisplay === 'grey') {
-        _drawLocGrey(loc);
-      }
+      if (tc.hoverDetail === 'dots') _flushDots(dotsEmpty, dotsOccupied, r);
     }
-  }
 
-  _flushDots(dotsEmpty, dotsOccupied, r);
-
-  // Hovered group wireframe overlay (drawn on top)
-  if (hoveredAisleKey !== null && hoverIdx) {
+    // Hover group outline + optional sub-level wireframes
     _drawGroupWireframe(hoveredAisleKey, hoverIdx, tc.hoverLevel);
-    // Independent of hoverDetail: draw sub-level wireframes within the hovered group
     if (tc.hoverWireframeLevel) {
-      const wfIdx     = wireframeIndices.get(tc.hoverWireframeLevel);
-      const hoverLocs = hoverIdx.get(hoveredAisleKey);
-      if (wfIdx && hoverLocs) {
+      const wfIdx = wireframeIndices.get(tc.hoverWireframeLevel);
+      const hoverLocs2 = hoverIdx.get(hoveredAisleKey);
+      if (wfIdx && hoverLocs2) {
         for (const [key, keyLocIds] of wfIdx) {
           for (const id of keyLocIds) {
-            if (hoverLocs.has(id)) { _drawGroupWireframe(key, wfIdx, tc.hoverWireframeLevel); break; }
+            if (hoverLocs2.has(id)) { _drawGroupWireframe(key, wfIdx, tc.hoverWireframeLevel); break; }
           }
         }
       }
@@ -1368,7 +1409,7 @@ window.addEventListener('mousemove', e => {
   lastMX = e.clientX; lastMY = e.clientY;
   panning = true;
   clearTimeout(_panTimer);
-  _panTimer = setTimeout(() => { panning = false; forceRender(); }, 50);
+  _panTimer = setTimeout(() => { panning = false; _markBgDirty(); _rebuildHitGrid(); forceRender(); }, 50);
   forceRender();
 });
 window.addEventListener('mouseup', () => {
@@ -1411,7 +1452,7 @@ canvas.addEventListener('touchmove', e => {
     lastTouchY = e.touches[0].clientY;
     panning = true;
     clearTimeout(_panTimer);
-    _panTimer = setTimeout(() => { panning = false; forceRender(); }, 50);
+    _panTimer = setTimeout(() => { panning = false; _markBgDirty(); _rebuildHitGrid(); forceRender(); }, 50);
     forceRender();
   } else if (e.touches.length === 2) {
     const dx = e.touches[0].clientX - e.touches[1].clientX;
@@ -1511,25 +1552,56 @@ canvas.addEventListener('mouseleave', () => {
   if (needsRender) forceRender();
 });
 
+// ─── Hit-test spatial grid ────────────────────────────────────────────────────
+// Screen-space grid: loc visual centres bucketed into HIT_CELL-px cells.
+// Rebuilt on zoom settle / pan end / view toggle / loc changes.
+// hitTest is then O(candidates in one cell) rather than O(all locations).
+const HIT_CELL   = 48;
+const _hitGrid   = new Map();  // `${cx},${cy}` → locId[]
+
+function _projectLocCentre(loc) {
+  const [wx, wy, wz] = loc.coords;
+  const [dx, dy, dz] = loc.meta.dims;
+  return isIso
+    ? project(wx + dx / 2, wy + dy / 2, wz + dz / 2)
+    : project(wx + dx / 2, wy + dy / 2, 0);
+}
+
+function _rebuildHitGrid() {
+  _hitGrid.clear();
+  for (const loc of locations.values()) {
+    const [sx, sy] = _projectLocCentre(loc);
+    // Insert into the cell and its ±1 neighbours so locs near cell boundaries
+    // are always found regardless of which side the cursor falls on.
+    const cx = Math.floor(sx / HIT_CELL);
+    const cy = Math.floor(sy / HIT_CELL);
+    for (let ddx = -1; ddx <= 1; ddx++) {
+      for (let ddy = -1; ddy <= 1; ddy++) {
+        const key = `${cx + ddx},${cy + ddy}`;
+        if (!_hitGrid.has(key)) _hitGrid.set(key, []);
+        _hitGrid.get(key).push(loc.id);
+      }
+    }
+  }
+}
+
 function hitTest(mx, my) {
-  // Project the visual centre of each loc (geometric midpoint of its bounding box),
-  // then return the closest one. The min-corner projection (old approach) drifts
-  // from the visual cube centre at high zoom, causing perceived offset.
+  const cx = Math.floor(mx / HIT_CELL);
+  const cy = Math.floor(my / HIT_CELL);
+  const candidates = _hitGrid.get(`${cx},${cy}`);
+  if (!candidates || candidates.length === 0) return null;
+
   let bestDistSq = Infinity;
   let hit = null;
-  for (const loc of locations.values()) {
-    const [wx, wy, wz] = loc.coords;
-    const [dx, dy, dz] = loc.meta.dims;
-    const [sx, sy] = isIso
-      ? project(wx + dx / 2, wy + dy / 2, wz + dz / 2)
-      : project(wx + dx / 2, wy + dy / 2, 0);
+  for (const id of candidates) {
+    const loc = locations.get(id);
+    if (!loc) continue;
+    const [sx, sy] = _projectLocCentre(loc);
     const d2 = (mx - sx) ** 2 + (my - sy) ** 2;
     if (d2 < bestDistSq) { bestDistSq = d2; hit = loc; }
   }
   if (!hit) return null;
-  // Reject if the mouse is outside a generous radius around the nearest centre.
-  // Use half the 3D diagonal of the loc scaled to screen pixels so the cutoff
-  // automatically grows/shrinks with zoom — no more dead zones or false hits.
+  // Reject if too far from the nearest centre (scale-proportional radius).
   const [dx, dy, dz] = hit.meta.dims;
   const reach = Math.hypot(dx / 2, dy / 2, isIso ? dz / 2 : 0) * scale * 1.5;
   return bestDistSq <= reach * reach ? hit : null;
@@ -1562,6 +1634,7 @@ function applyEvent(msg) {
       for (const [cid, c] of Object.entries(payload.containers || {})) {
         containers.set(cid, c);
       }
+      _markBgDirty();
       break;
     }
     case 'container_registered': {
@@ -1587,6 +1660,7 @@ function applyEvent(msg) {
         if (from_removable_slots !== undefined) loc.removable_slots = from_removable_slots;
         delete loc.containers[container_id];
         tileCache.delete(from_loc_id);
+        _markBgDirty();
       }
       if (to_loc_id && locations.has(to_loc_id)) {
         const loc = locations.get(to_loc_id);
@@ -1596,6 +1670,7 @@ function applyEvent(msg) {
         const c = containers.get(container_id);
         if (c) loc.containers[container_id] = c;
         tileCache.delete(to_loc_id);
+        _markBgDirty();
       } else if (!to_loc_id) {
         // delete_container_on_transfer — container is gone, clean up global map
         containers.delete(container_id);
@@ -1611,6 +1686,7 @@ function applyEvent(msg) {
         const c = locations.get(loc_id).containers[container_id];
         if (c) c.contents = contents;
         tileCache.delete(loc_id);
+        _markBgDirty();
       }
       break;
     }
@@ -1626,6 +1702,7 @@ function applyEvent(msg) {
           if (cid in loc.containers) { delete loc.containers[cid]; tileCache.delete(loc.id); break; }
         }
       }
+      _markBgDirty();
       break;
     }
     case 'sim_status': {
@@ -1664,6 +1741,7 @@ async function loadSnapshot() {
         if (c.uom) _uomIcon(c.uom);
       }
     }
+    _markBgDirty();
 
     offset += SNAPSHOT_PAGE;
     statusEl.textContent = `Loading… ${locations.size.toLocaleString()} / ${total.toLocaleString()}`;
