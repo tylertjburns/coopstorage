@@ -84,6 +84,8 @@ def snapshot_router_factory(storage: Storage) -> APIRouter:
             'total': total,
             'offset': offset,
             'locations': serialized,
+            'reserved_container_ids': list(storage.get_reserved_container_ids()),
+            'reserved_location_ids':  list(storage.get_reserved_location_ids()),
         }
 
     return router

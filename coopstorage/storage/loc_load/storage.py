@@ -13,6 +13,7 @@ from cooptools.protocols import UniqueIdentifier
 from coopstorage.storage.loc_load.location import Location
 import coopstorage.storage.loc_load.qualifiers as qs
 from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria, TransferRequest
+from coopstorage.storage.loc_load.reservation_provider import ReservationProvider, PassthroughReservationProvider
 import cooptools.common as comm
 from coopstorage.storage.loc_load import data as data
 from cooptools.qualifiers import PatternMatchQualifier
@@ -21,8 +22,6 @@ from pubsub import pub
 from coopstorage.enums import StorageTopic
 
 logger = logging.getLogger(__name__)
-
-RESERVATION_KEY = '006ddd91-73a5-4075-b49b-baa3077d5b4a'
 
 
 def _build_transfer_payload(transfer_request: 'TransferRequest',
@@ -54,9 +53,11 @@ class Storage:
                  containers: Iterable[dcs.Container] = None,
                  locs: Iterable[Location] = None,
                  id: UniqueIdentifier = None,
-                 location_map_tree=None):
+                 location_map_tree=None,
+                 reservation_provider: ReservationProvider = None):
 
         self._lock = threading.RLock()
+        self._reservation_provider = reservation_provider or PassthroughReservationProvider()
         self._data_store = data_store if data_store is not None else data.StorageDataStore()
 
         self._id = id or uuid.uuid4()
@@ -315,6 +316,18 @@ class Storage:
         logger.info(f"Container {transfer_request.container.id} transferred{source_txt}{dest_txt}")
         pub.sendMessage(StorageTopic.CONTAINER_MOVED.value,
                         payload=_build_transfer_payload(transfer_request, updated_src, updated_dst))
+        transfer_request.release_reservations(self._reservation_provider)
+        req_id = str(transfer_request.get_id())
+        if transfer_request.container_reservation_token is not None:
+            pub.sendMessage(StorageTopic.CONTAINER_UNRESERVED.value, payload={
+                'container_id': str(transfer_request.container.id),
+                'transfer_request_id': req_id,
+            })
+        if transfer_request.destination_reservation_token is not None:
+            pub.sendMessage(StorageTopic.LOCATION_UNRESERVED.value, payload={
+                'location_id': str(transfer_request.dest_loc.Id),
+                'transfer_request_id': req_id,
+            })
 
     def handle_transfer_requests(self,
                                  transfer_request_criteria: Iterable[TransferRequestCriteria],
@@ -325,6 +338,7 @@ class Storage:
                     criteria=criteria,
                     dest_loc_evaluator=dest_loc_evaluator,
                 )
+                request = request.try_acquire_reservations(self._reservation_provider)
                 self._data_store.TransferRequestsData.add([request])
                 self._data_store.ContainersData.add_or_update(containers=[request.container])
 
@@ -427,6 +441,24 @@ class Storage:
     def EmptyLocs(self) -> List[Location]:
         """Locations with no containers stored."""
         return [loc for loc in self._data_store.LocationsData.get().values() if len(loc.ContainerIds) == 0]
+
+    def get_reserved_container_ids(self) -> set:
+        """Return the set of container IDs that currently have an active reservation."""
+        with self._lock:
+            return {
+                str(req.container.id)
+                for req in self._data_store.TransferRequestsData.get().values()
+                if req.container_reservation_token is not None
+            }
+
+    def get_reserved_location_ids(self) -> set:
+        """Return the set of location IDs that currently have an active reservation."""
+        with self._lock:
+            return {
+                str(req.dest_loc.Id)
+                for req in self._data_store.TransferRequestsData.get().values()
+                if req.destination_reservation_token is not None and req.dest_loc is not None
+            }
 
     def content_at_location(self, loc_id: UniqueIdentifier) -> List[dcs.ContainerContent]:
         """All ContainerContent across every container at a location, aggregated by (resource, uom)."""

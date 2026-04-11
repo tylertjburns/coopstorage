@@ -46,11 +46,16 @@ class StorageEventBus:
         self._lock = threading.Lock()
         self._subscribers: Dict[str, _SubscriberState] = {}
 
-        pub.subscribe(self._on_location_registered,  StorageTopic.LOCATION_REGISTERED.value)
-        pub.subscribe(self._on_container_registered, StorageTopic.CONTAINER_REGISTERED.value)
-        pub.subscribe(self._on_container_moved,      StorageTopic.CONTAINER_MOVED.value)
-        pub.subscribe(self._on_content_changed,      StorageTopic.CONTENT_CHANGED.value)
-        pub.subscribe(self._on_container_removed,    StorageTopic.CONTAINER_REMOVED.value)
+        pub.subscribe(self._on_location_registered,   StorageTopic.LOCATION_REGISTERED.value)
+        pub.subscribe(self._on_container_registered,  StorageTopic.CONTAINER_REGISTERED.value)
+        pub.subscribe(self._on_container_moved,       StorageTopic.CONTAINER_MOVED.value)
+        pub.subscribe(self._on_content_changed,       StorageTopic.CONTENT_CHANGED.value)
+        pub.subscribe(self._on_container_removed,     StorageTopic.CONTAINER_REMOVED.value)
+        pub.subscribe(self._on_container_reserved,    StorageTopic.CONTAINER_RESERVED.value)
+        pub.subscribe(self._on_container_unreserved,  StorageTopic.CONTAINER_UNRESERVED.value)
+        pub.subscribe(self._on_location_reserved,     StorageTopic.LOCATION_RESERVED.value)
+        pub.subscribe(self._on_location_unreserved,   StorageTopic.LOCATION_UNRESERVED.value)
+        pub.subscribe(self._on_reservation_failed,    StorageTopic.RESERVATION_FAILED.value)
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
@@ -140,3 +145,18 @@ class StorageEventBus:
 
     def _on_container_removed(self, payload):
         self._emit(StorageEvent('container_removed', payload))
+
+    def _on_container_reserved(self, payload):
+        self._emit(StorageEvent('container_reserved', payload))
+
+    def _on_container_unreserved(self, payload):
+        self._emit(StorageEvent('container_unreserved', payload))
+
+    def _on_location_reserved(self, payload):
+        self._emit(StorageEvent('location_reserved', payload))
+
+    def _on_location_unreserved(self, payload):
+        self._emit(StorageEvent('location_unreserved', payload))
+
+    def _on_reservation_failed(self, payload):
+        self._emit(StorageEvent('reservation_failed', payload))

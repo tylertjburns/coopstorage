@@ -1,10 +1,13 @@
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace
 import coopstorage.storage.loc_load.dcs as dcs
 import coopstorage.storage.loc_load.qualifiers as lq
 from coopstorage.storage.loc_load.location import Location
 import logging
 from pprint import pformat
 from typing import Callable, Optional, Self, Dict
+from coopstorage.storage.loc_load.reservation_provider import ReservationProvider
+from pubsub import pub
+from coopstorage.enums import StorageTopic
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +32,8 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
     container: dcs.Container = None
     source_loc: Location = None
     dest_loc: Location = None
+    container_reservation_token: Optional[str] = None
+    destination_reservation_token: Optional[str] = None
 
     def verify(self):
         # source empty, firm container, dest firm --> store new container at dest
@@ -51,8 +56,62 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
 
         raise ValueError(f"Unhandled Transfer Request \n{pformat(self)}")
 
+    def release_reservations(self, reservation_provider: ReservationProvider) -> None:
+        requester = str(self.get_id())
+        if self.container_reservation_token is not None:
+            reservation_provider.unreserve(self.container_reservation_token, requester)
+            pub.sendMessage(StorageTopic.CONTAINER_UNRESERVED.value, payload={
+                'container_id': str(self.container.id),
+                'transfer_request_id': requester,
+            })
+        if self.destination_reservation_token is not None:
+            reservation_provider.unreserve(self.destination_reservation_token, requester)
+            pub.sendMessage(StorageTopic.LOCATION_UNRESERVED.value, payload={
+                'location_id': str(self.dest_loc.Id),
+                'transfer_request_id': requester,
+            })
+
+    def try_acquire_reservations(self, reservation_provider: ReservationProvider) -> 'TransferRequest':
+        requester = str(self.get_id())
+        container_token = reservation_provider.reserve(str(self.container.id), requester)
+        if container_token is not None:
+            pub.sendMessage(StorageTopic.CONTAINER_RESERVED.value, payload={
+                'container_id': str(self.container.id),
+                'transfer_request_id': requester,
+            })
+        else:
+            pub.sendMessage(StorageTopic.RESERVATION_FAILED.value, payload={
+                'transfer_request_id': requester,
+                'failed_resource': 'container',
+            })
+
+        dest_token = None
+        if self.dest_loc is not None:
+            dest_token = reservation_provider.reserve(str(self.dest_loc.Id), requester)
+            if dest_token is not None:
+                pub.sendMessage(StorageTopic.LOCATION_RESERVED.value, payload={
+                    'location_id': str(self.dest_loc.Id),
+                    'transfer_request_id': requester,
+                })
+            else:
+                pub.sendMessage(StorageTopic.RESERVATION_FAILED.value, payload={
+                    'transfer_request_id': requester,
+                    'failed_resource': 'destination',
+                })
+
+        return replace(
+            self,
+            container_reservation_token=container_token,
+            destination_reservation_token=dest_token,
+        )
+
     @property
     def Ready(self) -> bool:
+        if self.container_reservation_token is None:
+            return False
+        if self.dest_loc is not None and self.destination_reservation_token is None:
+            return False
+
         # is container ready to be removed
         try:
             if self.source_loc is None:

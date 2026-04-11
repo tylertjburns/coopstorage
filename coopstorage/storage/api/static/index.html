@@ -264,7 +264,7 @@
     <div class="viz-tier-section">
       <div class="viz-tier-header">
         Low zoom
-        <span>scale &lt; <input id="viz-lod-mid" type="number" min="0.5" max="200" step="0.25" value="1.75" /></span>
+        <span>scale &lt; <input id="viz-lod-mid" type="number" min="0.5" max="200" step="0.25" value="1.25" /></span>
       </div>
       <div class="viz-field">
         <label>Wireframes</label>
@@ -458,6 +458,14 @@
     <div class="legend-swatch" style="background:#1a4a1a; border:2px solid #bc8cff;"></div>
     <span>Retrievable</span>
   </div>
+  <div class="legend-row">
+    <div class="legend-swatch" style="background:#3d2e00; border:1px solid #e3b341;"></div>
+    <span>Reserved (container)</span>
+  </div>
+  <div class="legend-row">
+    <div class="legend-swatch" style="background:#1c2128; border:2px solid #e3b341;"></div>
+    <span>Reserved (location)</span>
+  </div>
 </div>
 
 <script>
@@ -471,7 +479,7 @@ const containers = new Map();   // flat container registry
 // ─── Viz config ───────────────────────────────────────────────────────────────
 // Three zoom tiers. lodMidThreshold separates low from mid; lodHighThreshold separates mid from high.
 const vizConfig = {
-  lodMidThreshold:  1.75,  // scale: below → low tier
+  lodMidThreshold:  1.25,  // scale: below → low tier
   lodHighThreshold: 4,     // scale: above → high tier (between the two = mid)
   showLocIds:       false,
   tiers: {
@@ -498,6 +506,12 @@ const vizConfig = {
     },
   },
 };
+
+// ─── Reservation state ────────────────────────────────────────────────────────
+const AMBER           = '#e3b341';
+const AMBER_FILL      = 'rgba(61,46,0,0.85)';
+const reservedContainerIds = new Set();  // container IDs with active reservations
+const reservedLocationIds  = new Set();  // location IDs with active reservations
 
 // ─── Group index ──────────────────────────────────────────────────────────────
 // wireframeIndices: Map<level, Map<key, Set<locId>>>  — one index per wireframe level in use
@@ -634,6 +648,7 @@ function _drawGroupWireframe(key, index, level) {
   const box = _groupBox(key, index);
   if (!box) return;
   const pct = _groupOccupancyPct(key, index);
+  const ids = index.get(key);
   // Interpolate between empty (#444c56) and occupied (#3fb950) to match slot colors
   const r = Math.round(0x44 + pct * (0x3f - 0x44));
   const g = Math.round(0x4c + pct * (0xb9 - 0x4c));
@@ -675,7 +690,6 @@ function _drawGroupWireframe(key, index, level) {
   const [lx, ly] = isIso
     ? project((box.minX + box.maxX) / 2, box.minY, box.maxZ)
     : project((box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2, 0);
-  const ids    = index.get(key);
   const sample = ids ? locations.get([...ids][0]) : null;
   if (sample && sample.tree_path) {
     const tp    = sample.tree_path;
@@ -879,19 +893,25 @@ function _paintBackground(tc) {
   // All locs using locsDisplay (no hover distinction — hover drawn on top)
   if (tc.locsDisplay !== 'none') {
     const r = Math.max(1.5, scale * 0.6);
-    const dotsEmpty = [], dotsOccupied = [];
+    const dotsEmpty = [], dotsOccupied = [], dotsReserved = [];
     for (const loc of locations.values()) {
       const [sx, sy] = project(...loc.coords);
       if (sx < -300 || sx > W + 300 || sy < -300 || sy > H + 300) continue;
-      const occupied = loc.slots.some(s => s !== null);
       if (tc.locsDisplay === 'dots') {
-        if (occupied) dotsOccupied.push(sx, sy);
-        else          dotsEmpty.push(sx, sy);
+        const locReserved = reservedLocationIds.has(String(loc.id));
+        const hasReservedContainer = loc.slots.some(s => s !== null && reservedContainerIds.has(String(s)));
+        if (locReserved || hasReservedContainer) {
+          dotsReserved.push(sx, sy);
+        } else {
+          const occupied = loc.slots.some(s => s !== null);
+          if (occupied) dotsOccupied.push(sx, sy);
+          else          dotsEmpty.push(sx, sy);
+        }
       } else {   // 'grey'
         _drawLocGrey(loc);
       }
     }
-    if (tc.locsDisplay === 'dots') _flushDots(dotsEmpty, dotsOccupied, r);
+    if (tc.locsDisplay === 'dots') _flushDots(dotsEmpty, dotsOccupied, dotsReserved, r);
   }
 
   ctx = savedCtx;   // eslint-disable-line no-global-assign
@@ -1007,7 +1027,7 @@ function requestRender() {
   }, RENDER_THROTTLE_MS);
 }
 
-function _flushDots(dotsEmpty, dotsOccupied, r) {
+function _flushDots(dotsEmpty, dotsOccupied, dotsReserved, r) {
   const d = r * 2;
   if (dotsEmpty.length > 0) {
     ctx.beginPath();
@@ -1023,6 +1043,13 @@ function _flushDots(dotsEmpty, dotsOccupied, r) {
     ctx.fillStyle = '#238636';
     ctx.fill();
   }
+  if (dotsReserved && dotsReserved.length > 0) {
+    ctx.beginPath();
+    for (let i = 0; i < dotsReserved.length; i += 2)
+      ctx.rect(dotsReserved[i] - r, dotsReserved[i+1] - r, d, d);
+    ctx.fillStyle = AMBER;
+    ctx.fill();
+  }
 }
 
 // Fast grey draw: just the location bounding box with occupied/empty color.
@@ -1031,8 +1058,17 @@ function _drawLocGrey(loc) {
   const [wx, wy, wz] = loc.coords;
   const [dx, dy, dz] = loc.meta.dims;
   const occupied = loc.slots.some(s => s !== null);
-  const fill   = occupied ? 'rgba(20,36,20,0.85)' : 'rgba(20,22,26,0.85)';
-  const stroke = occupied ? '#2a4a2a' : '#2a2f38';
+  const hasReservedContainer = loc.slots.some(s => s !== null && reservedContainerIds.has(String(s)));
+  const locReserved = reservedLocationIds.has(String(loc.id));
+
+  let fill, stroke;
+  if (hasReservedContainer) {
+    fill   = AMBER_FILL;
+    stroke = AMBER;
+  } else {
+    fill   = occupied ? 'rgba(20,36,20,0.85)' : 'rgba(20,22,26,0.85)';
+    stroke = locReserved ? AMBER : (occupied ? '#2a4a2a' : '#2a2f38');
+  }
   if (isIso) {
     drawIsoCube(wx, wy, wz, dx, dy, dz, fill, fill, fill, stroke);
   } else {
@@ -1067,7 +1103,7 @@ function render() {
       if (loc.slots.some(s => s !== null)) dO.push(sx, sy);
       else dE.push(sx, sy);
     }
-    _flushDots(dE, dO, r);
+    _flushDots(dE, dO, [], r);
     if (tc.wireframeLevels.length > 0) {
       const firstIdx = wireframeIndices.get(tc.wireframeLevels[0]);
       if (firstIdx) for (const [key] of firstIdx) _drawGroupWireframe(key, firstIdx, tc.wireframeLevels[0]);
@@ -1086,22 +1122,28 @@ function render() {
   if (hoveredAisleKey !== null && hoverIdx) {
     const hoverLocs = hoverIdx.get(hoveredAisleKey);
     if (hoverLocs) {
-      const dotsEmpty = [], dotsOccupied = [];
+      const dotsEmpty = [], dotsOccupied = [], dotsReserved = [];
       for (const id of hoverLocs) {
         const loc = locations.get(id);
         if (!loc) continue;
         const [sx, sy] = project(...loc.coords);
         if (sx < -300 || sx > W + 300 || sy < -300 || sy > H + 300) continue;
-        const occupied = loc.slots.some(s => s !== null);
         if (tc.hoverDetail === 'dots') {
-          if (occupied) dotsOccupied.push(sx, sy);
-          else          dotsEmpty.push(sx, sy);
+          const locReserved = reservedLocationIds.has(String(loc.id));
+          const hasReservedContainer = loc.slots.some(s => s !== null && reservedContainerIds.has(String(s)));
+          if (locReserved || hasReservedContainer) {
+            dotsReserved.push(sx, sy);
+          } else {
+            const occupied = loc.slots.some(s => s !== null);
+            if (occupied) dotsOccupied.push(sx, sy);
+            else          dotsEmpty.push(sx, sy);
+          }
         } else if (tc.hoverDetail === 'tiles') {
           _drawTile(loc, sx, sy);
         }
         // 'none': hovered locs show through from background unchanged
       }
-      if (tc.hoverDetail === 'dots') _flushDots(dotsEmpty, dotsOccupied, r);
+      if (tc.hoverDetail === 'dots') _flushDots(dotsEmpty, dotsOccupied, dotsReserved, r);
     }
 
     // Hover group outline + optional sub-level wireframes
@@ -1256,12 +1298,13 @@ function _drawDetail3D(loc) {
   const [wx, wy, wz] = loc.coords;
   const [dx, dy, dz] = loc.meta.dims;
 
-  // Location bounding cube — subtle dark fill, grey outline
+  // Location bounding cube — subtle dark fill; amber outline if location is reserved
+  const locBoundStroke = reservedLocationIds.has(String(loc.id)) ? AMBER : '#30363d';
   if (isIso) {
     drawIsoCube(wx, wy, wz, dx, dy, dz,
-      'rgba(26,31,38,0.8)', 'rgba(18,22,28,0.8)', 'rgba(18,22,28,0.8)', '#30363d');
+      'rgba(26,31,38,0.8)', 'rgba(18,22,28,0.8)', 'rgba(18,22,28,0.8)', locBoundStroke);
   } else {
-    drawTopBox(wx, wy, dx, dy, 'rgba(26,31,38,0.8)', '#30363d');
+    drawTopBox(wx, wy, dx, dy, 'rgba(26,31,38,0.8)', locBoundStroke);
   }
 
   // Slot cubes
@@ -1273,13 +1316,14 @@ function _drawDetail3D(loc) {
 
     const isAddable   = loc.addable_slots   && loc.addable_slots.includes(i);
     const isRemovable = loc.removable_slots && loc.removable_slots.includes(i);
+    const isReserved  = cid !== null && reservedContainerIds.has(String(cid));
 
     if (isIso) {
       const p = (x, y, z) => project(x, y, z);
       const sx2 = wx+ox, sy2 = wy+oy, sz2 = wz+oz;
-      const topCol  = occ ? '#1a4a1a' : '#1c2128';
-      const sideCol = occ ? '#0f2e0f' : '#141a1f';
-      const stroke  = occ ? '#3fb950' : '#444c56';
+      const topCol  = isReserved ? '#3d2e00' : (occ ? '#1a4a1a' : '#1c2128');
+      const sideCol = isReserved ? '#2a1e00' : (occ ? '#0f2e0f' : '#141a1f');
+      const stroke  = isReserved ? AMBER     : (occ ? '#3fb950' : '#444c56');
       // y+ face: left wall (bottom-left in screen)
       _face([p(sx2,     sy2+sdy, sz2),     p(sx2+sdx, sy2+sdy, sz2),
              p(sx2+sdx, sy2+sdy, sz2+sdz), p(sx2,     sy2+sdy, sz2+sdz)],
@@ -1305,8 +1349,8 @@ function _drawDetail3D(loc) {
       const [bx0, by0] = project(wx+ox,     wy+oy,     0);
       const [bx1, by1] = project(wx+ox+sdx, wy+oy+sdy, 0);
       drawTopBox(wx+ox, wy+oy, sdx, sdy,
-        occ ? '#1a4a1a' : '#1c2128',
-        occ ? '#3fb950' : '#444c56');
+        isReserved ? '#3d2e00' : (occ ? '#1a4a1a' : '#1c2128'),
+        isReserved ? AMBER     : (occ ? '#3fb950' : '#444c56'));
       if (isAddable || isRemovable) {
         const rectPts = [[bx0,by0],[bx1,by0],[bx1,by1],[bx0,by1]];
         if (isAddable && isRemovable) {
@@ -1705,6 +1749,30 @@ function applyEvent(msg) {
       _markBgDirty();
       break;
     }
+    case 'container_reserved': {
+      reservedContainerIds.add(String(payload.container_id));
+      tileCache.clear();
+      _markBgDirty();
+      break;
+    }
+    case 'container_unreserved': {
+      reservedContainerIds.delete(String(payload.container_id));
+      tileCache.clear();
+      _markBgDirty();
+      break;
+    }
+    case 'location_reserved': {
+      reservedLocationIds.add(String(payload.location_id));
+      _markBgDirty();
+      break;
+    }
+    case 'location_unreserved': {
+      reservedLocationIds.delete(String(payload.location_id));
+      _markBgDirty();
+      break;
+    }
+    case 'reservation_failed':
+      break;   // no visual state change
     case 'sim_status': {
       const running = payload.running;
       btnSimStart.disabled = running;
@@ -1742,6 +1810,10 @@ async function loadSnapshot() {
       }
     }
     _markBgDirty();
+
+    // Reservation state is included on each page; accumulate across pages
+    for (const id of (data.reserved_container_ids || [])) reservedContainerIds.add(id);
+    for (const id of (data.reserved_location_ids  || [])) reservedLocationIds.add(id);
 
     offset += SNAPSHOT_PAGE;
     statusEl.textContent = `Loading… ${locations.size.toLocaleString()} / ${total.toLocaleString()}`;
@@ -2055,6 +2127,8 @@ document.getElementById('btn-clear-locs').addEventListener('click', async () => 
   wireframeIndices.clear();
   hoverIndices.clear();
   groupBoxCache.clear();
+  reservedContainerIds.clear();
+  reservedLocationIds.clear();
   hoveredAisleKey = null;
   hoveredLocId    = null;
   forceRender();

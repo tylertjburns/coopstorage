@@ -10,7 +10,7 @@ Usage
     python run_viz_benchmark.py --config medium         # MEDIUM benchmark
     python run_viz_benchmark.py --mode sim              # continuous randomized simulation
     python run_viz_benchmark.py --mode showcase         # one of each processor type, lock-step
-    python run_viz_benchmark.py --mode oneaisle         # StorageConfig(zones=[ZoneConfig()]) + sim
+    python run_viz_benchmark.py --mode defaultzone         # StorageConfig(zones=[ZoneConfig()]) + sim
     python run_viz_benchmark.py --delay 0.05            # 50ms between ops
     python run_viz_benchmark.py --no-browser            # don't auto-open browser
     python run_viz_benchmark.py --port 1219             # custom port (default 1219)
@@ -47,6 +47,7 @@ import coopstorage.storage.loc_load.dcs as dcs
 import coopstorage.storage.loc_load.channel_processors as cps
 from dataclasses import replace
 from coopstorage.viz_helper import start_visualizer
+from coopstorage.storage.loc_load.reservation_provider import LockerApiReservationProvider
 from coopstorage.storage.loc_load.event_bus import StorageEvent
 
 # ── config maps ───────────────────────────────────────────────────────────────
@@ -64,7 +65,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run storage benchmark/sim with live visualizer")
     parser.add_argument("--config",     default="small",
                         choices=list(_CONFIGS), help="Config size (default: small)")
-    parser.add_argument("--mode",       default="benchmark", choices=["benchmark", "sim", "showcase", "oneaisle"],
+    parser.add_argument("--mode",       default="benchmark", choices=["benchmark", "sim", "showcase", "defaultzone"],
                         help="'benchmark' runs a fixed workload; 'sim' runs continuously (default: benchmark)")
     parser.add_argument("--delay",      type=float, default=0.02,
                         help="Seconds to sleep between transfer ops (default: 0.02)")
@@ -75,7 +76,14 @@ def main():
     parser.add_argument("--log-level",  default="WARNING",
                         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
                         help="Logging level (default: WARNING)")
+    parser.add_argument("--reservation-url", default=None,
+                        help="Base URL of the Locker reservation API (e.g. http://localhost:5001)")
     args = parser.parse_args()
+
+    reservation_provider = (
+        LockerApiReservationProvider(args.reservation_url)
+        if args.reservation_url else None
+    )
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),
@@ -85,7 +93,7 @@ def main():
     viz_url = f"http://{args.host}:{args.port}/static/index.html"
 
     if args.mode == "sim":
-        storage = build_all_processor_storage()
+        storage = build_all_processor_storage(reservation_provider=reservation_provider)
         print(f"\n  CoopStorage Visualizer Simulation (continuous)")
         print(f"  locations={len(storage.Locations):,}  delay={args.delay*1000:.0f}ms/op")
         print(f"  visualizer -> {viz_url}\n")
@@ -94,17 +102,18 @@ def main():
         storage = build_all_processor_storage(
             locs_per_type=cfg.locs_per_type,
             location_capacity=cfg.location_capacity,
+            reservation_provider=reservation_provider,
         )
         print(f"\n  CoopStorage Visualizer Benchmark")
         print(f"  config={args.config}  locations={cfg.num_locations:,}"
               f"  ops={cfg.total_to_add:,}  delay={args.delay*1000:.0f}ms/op")
         print(f"  visualizer -> {viz_url}\n")
     elif args.mode == "showcase":
-        storage = build_showcase_storage()
+        storage = build_showcase_storage(reservation_provider=reservation_provider)
         print(f"\n  CoopStorage Visualizer Showcase (lock-step per processor type)")
         print(f"  locations={len(storage.Locations):,}  delay={args.delay*1000:.0f}ms/op")
         print(f"  visualizer -> {viz_url}\n")
-    elif args.mode == "oneaisle":
+    elif args.mode == "defaultzone":
         _bay = BayConfig(
             loc_config=dcs.LocationMeta(
                 dims=(10, 10, 5),
@@ -119,7 +128,7 @@ def main():
                     right_bay_config=replace(_bay, side_designator="R"),
                 ),
             )]
-        ).storage()
+        ).storage(reservation_provider=reservation_provider)
         print(f"\n  CoopStorage Visualizer — One Aisle (default StorageConfig)")
         print(f"  locations={len(storage.Locations):,}  delay={args.delay*1000:.0f}ms/op")
         print(f"  visualizer -> {viz_url}\n")
@@ -139,7 +148,7 @@ def main():
 
     # 2. Run workload
     try:
-        if args.mode in ("sim", "oneaisle"):
+        if args.mode in ("sim", "defaultzone"):
             print(f"  Running simulation (delay={args.delay*1000:.0f}ms between ops,"
                   f" Ctrl+C to stop)…\n")
             stop_event = threading.Event()

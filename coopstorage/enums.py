@@ -15,3 +15,8 @@ class StorageTopic(CoopEnum):
     CONTAINER_MOVED      = 'storage.container_moved'
     CONTENT_CHANGED      = 'storage.content_changed'
     CONTAINER_REMOVED    = 'storage.container_removed'
+    CONTAINER_RESERVED   = 'storage.container_reserved'
+    CONTAINER_UNRESERVED = 'storage.container_unreserved'
+    LOCATION_RESERVED    = 'storage.location_reserved'
+    LOCATION_UNRESERVED  = 'storage.location_unreserved'
+    RESERVATION_FAILED   = 'storage.reservation_failed'

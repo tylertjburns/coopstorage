@@ -9,6 +9,7 @@ from coopstorage.storage.loc_load.location import Location
 from cooptools.geometry_utils import vector_utils as vec
 import coopstorage.storage.loc_load.dcs as dcs
 from coopstorage.storage.loc_load.storage import Storage
+from coopstorage.storage.loc_load.reservation_provider import ReservationProvider
 import coopstorage.storage.loc_load.channel_processors as cps
 from coopstorage.location_map_tree import LocationMapTree
 import math
@@ -106,14 +107,15 @@ class StorageConfig:
             locations.extend(zone_config.locs(zone_idx=zone_idx, tree=tree))
         return locations
 
-    def storage(self) -> Storage:
+    def storage(self, reservation_provider: ReservationProvider = None) -> Storage:
         tree = LocationMapTree()
-        return Storage(locs=self.locs(tree=tree), location_map_tree=tree)
+        return Storage(locs=self.locs(tree=tree), location_map_tree=tree, reservation_provider=reservation_provider)
 
 def build_all_processor_storage(
     locs_per_type: int = 3,
     location_capacity: int = 5,
     loc_spacing: float = 15.0,
+    reservation_provider: ReservationProvider = None,
 ) -> Storage:
     """Build a Storage with N locations per channel processor type, arranged in
     parallel rows — one row per processor type."""
@@ -131,12 +133,13 @@ def build_all_processor_storage(
         for type_idx, cp in enumerate(cps.ChannelProcessorType)
         for i in range(locs_per_type)
     ]
-    return Storage(locs=locations)
+    return Storage(locs=locations, reservation_provider=reservation_provider)
 
 
 def build_showcase_storage(
     location_capacity: int = 5,
     loc_spacing: float = 15.0,
+    reservation_provider: ReservationProvider = None,
 ) -> Storage:
     """Build a Storage with exactly one location per channel processor type,
     arranged in the smallest square grid that fits all types."""
@@ -154,7 +157,7 @@ def build_showcase_storage(
         )
         for idx, cp_type in enumerate(cps.ChannelProcessorType)
     ]
-    return Storage(locs=locations)
+    return Storage(locs=locations, reservation_provider=reservation_provider)
 
 
 if __name__ == "__main__":
