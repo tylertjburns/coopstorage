@@ -513,6 +513,74 @@ const AMBER_FILL      = 'rgba(61,46,0,0.85)';
 const reservedContainerIds = new Set();  // container IDs with active reservations
 const reservedLocationIds  = new Set();  // location IDs with active reservations
 
+// ─── Reservation animation state ─────────────────────────────────────────────
+const ANIM_DUR_RESERVE   = 900;   // ms — two amber rings
+const ANIM_DUR_UNRESERVE = 550;   // ms — single red ring
+const activeAnimations   = [];    // { type:'reserve'|'unreserve', coords:[wx,wy,wz], startTime }
+let _animLoopRunning     = false;
+
+function _triggerReservationAnim(type, coords) {
+  activeAnimations.push({ type, coords, startTime: performance.now() });
+  _startAnimLoop();
+}
+
+function _startAnimLoop() {
+  if (_animLoopRunning) return;
+  _animLoopRunning = true;
+  function tick() {
+    const now = performance.now();
+    for (let i = activeAnimations.length - 1; i >= 0; i--) {
+      const dur = activeAnimations[i].type === 'reserve' ? ANIM_DUR_RESERVE : ANIM_DUR_UNRESERVE;
+      if (now - activeAnimations[i].startTime >= dur) activeAnimations.splice(i, 1);
+    }
+    if (activeAnimations.length === 0) { _animLoopRunning = false; return; }
+    render();
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+function _drawAnimations() {
+  if (activeAnimations.length === 0) return;
+  const now = performance.now();
+  for (const anim of activeAnimations) {
+    const isReserve = anim.type === 'reserve';
+    const duration  = isReserve ? ANIM_DUR_RESERVE : ANIM_DUR_UNRESERVE;
+    const t = Math.min(1, (now - anim.startTime) / duration);
+    if (t >= 1) continue;
+    const [sx, sy] = project(...anim.coords);
+    if (sx < -200 || sx > W + 200 || sy < -200 || sy > H + 200) continue;
+
+    if (isReserve) {
+      // Amber center glow — fades over first 45% of animation so the amber
+      // state is visible even if the item was unreserved before the first render
+      const flashT = Math.min(1, t / 0.45);
+      ctx.beginPath();
+      ctx.arc(sx, sy, 18, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(227,179,65,${(1 - flashT) * 0.6})`;
+      ctx.fill();
+      // Two staggered amber rings
+      for (let ring = 0; ring < 2; ring++) {
+        const delay = ring * 0.28;
+        const rt = Math.max(0, (t - delay) / (1 - delay));
+        if (rt <= 0) continue;
+        ctx.beginPath();
+        ctx.arc(sx, sy, Math.max(1, rt * 59), 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(227,179,65,${Math.pow(1 - rt, 1.4) * 0.9})`;
+        ctx.lineWidth   = 3 * (1 - rt * 0.55);
+        ctx.stroke();
+      }
+    } else {
+      // Single red ring — abrupt release pulse
+      ctx.beginPath();
+      ctx.arc(sx, sy, Math.max(1, t * 48), 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(248,81,73,${Math.pow(1 - t, 1.2) * 0.92})`;
+      ctx.lineWidth   = 3.5 * (1 - t * 0.65);
+      ctx.stroke();
+    }
+  }
+}
+
 // ─── Group index ──────────────────────────────────────────────────────────────
 // wireframeIndices: Map<level, Map<key, Set<locId>>>  — one index per wireframe level in use
 // hoverIndices:     Map<level, Map<key, Set<locId>>>  — one index per hover level in use
@@ -1108,6 +1176,7 @@ function render() {
       const firstIdx = wireframeIndices.get(tc.wireframeLevels[0]);
       if (firstIdx) for (const [key] of firstIdx) _drawGroupWireframe(key, firstIdx, tc.wireframeLevels[0]);
     }
+    _drawAnimations();
     return;
   }
 
@@ -1160,6 +1229,7 @@ function render() {
       }
     }
   }
+  _drawAnimations();
 }
 
 function drawRect(loc, sx, sy, occupied) {
@@ -1750,24 +1820,52 @@ function applyEvent(msg) {
       break;
     }
     case 'container_reserved': {
-      reservedContainerIds.add(String(payload.container_id));
+      const cid = String(payload.container_id);
+      reservedContainerIds.add(cid);
       tileCache.clear();
       _markBgDirty();
+      for (const loc of locations.values()) {
+        if (cid in loc.containers) {
+          const [wx, wy, wz] = loc.coords, [dx, dy, dz] = loc.meta.dims;
+          _triggerReservationAnim('reserve', [wx + dx * 0.5, wy + dy * 0.5, wz + dz * 0.5]);
+          break;
+        }
+      }
       break;
     }
     case 'container_unreserved': {
-      reservedContainerIds.delete(String(payload.container_id));
+      const cid = String(payload.container_id);
+      for (const loc of locations.values()) {
+        if (cid in loc.containers) {
+          const [wx, wy, wz] = loc.coords, [dx, dy, dz] = loc.meta.dims;
+          _triggerReservationAnim('unreserve', [wx + dx * 0.5, wy + dy * 0.5, wz + dz * 0.5]);
+          break;
+        }
+      }
+      reservedContainerIds.delete(cid);
       tileCache.clear();
       _markBgDirty();
       break;
     }
     case 'location_reserved': {
-      reservedLocationIds.add(String(payload.location_id));
+      const lid = String(payload.location_id);
+      const loc = locations.get(lid);
+      if (loc) {
+        const [wx, wy, wz] = loc.coords, [dx, dy, dz] = loc.meta.dims;
+        _triggerReservationAnim('reserve', [wx + dx * 0.5, wy + dy * 0.5, wz + dz * 0.5]);
+      }
+      reservedLocationIds.add(lid);
       _markBgDirty();
       break;
     }
     case 'location_unreserved': {
-      reservedLocationIds.delete(String(payload.location_id));
+      const lid = String(payload.location_id);
+      const loc = locations.get(lid);
+      if (loc) {
+        const [wx, wy, wz] = loc.coords, [dx, dy, dz] = loc.meta.dims;
+        _triggerReservationAnim('unreserve', [wx + dx * 0.5, wy + dy * 0.5, wz + dz * 0.5]);
+      }
+      reservedLocationIds.delete(lid);
       _markBgDirty();
       break;
     }

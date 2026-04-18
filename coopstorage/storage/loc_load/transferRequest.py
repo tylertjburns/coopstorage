@@ -73,7 +73,7 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
 
     def try_acquire_reservations(self, reservation_provider: ReservationProvider) -> 'TransferRequest':
         requester = str(self.get_id())
-        container_token = reservation_provider.reserve(str(self.container.id), requester)
+        container_token = reservation_provider.reserve(str(self.container.id), requester, resource_type="container")
         if container_token is not None:
             pub.sendMessage(StorageTopic.CONTAINER_RESERVED.value, payload={
                 'container_id': str(self.container.id),
@@ -87,7 +87,7 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
 
         dest_token = None
         if self.dest_loc is not None:
-            dest_token = reservation_provider.reserve(str(self.dest_loc.Id), requester)
+            dest_token = reservation_provider.reserve(str(self.dest_loc.Id), requester, resource_type="location")
             if dest_token is not None:
                 pub.sendMessage(StorageTopic.LOCATION_RESERVED.value, payload={
                     'location_id': str(self.dest_loc.Id),
