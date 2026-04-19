@@ -270,15 +270,14 @@ class Storage:
             container = self._data_store.ContainersData.get(ids=[container_id])[container_id]
 
         elif criteria.container_query_args is not None:
-            # Container only: find it across all storage, then infer source location
-            cq_is_reserved = self._is_container_reserved if criteria.container_query_args.reserved is not None else None
-            container = comm.filter(
-                self._data_store.ContainersData.get().values(),
-                lambda c: criteria.container_query_args.check_if_qualifies(c, is_reserved=cq_is_reserved)
-            )[0]
+            # Container only: find a location that has a qualifying container, then
+            # select the container from that location. This ensures the container and
+            # source are always consistent (avoids picking a container at L1 but
+            # a source at L2 when the qualifier matches multiple containers).
             source = self.select_location(filter=qs.LocationQualifier(
-                has_all_containers=[criteria.container_query_args]
+                has_any_containers=[criteria.container_query_args]
             ))
+            container = self.select_container(loc=source, filter=criteria.container_query_args)
 
         elif criteria.new_container is not None:
             # New container arriving — no source

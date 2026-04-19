@@ -496,6 +496,34 @@ class TestStorageResolveSourceContainerDest(unittest.TestCase):
         self.assertNotIn('C1', locs['A'].ContainerIds)
         self.assertIn('C1', locs['B'].ContainerIds)
 
+    def test_container_only_broad_qualifier_container_and_source_are_consistent(self):
+        """A broad container_query_args (no specific ID) must resolve a container that
+        actually lives at the inferred source — not a container at a different location.
+
+        Regression: the old code found the container and the source location
+        independently using the same qualifier, so with two containers at two
+        locations (C1@A, C2@B) it could pick C1 from ContainersData but then
+        select B as the source (because B also has a qualifying container), causing
+        ItemNotFoundToRemoveException when trying to remove C1 from B.
+        """
+        from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria
+        s = self._storage()
+        self._seed(s, 'C1', 'A')
+        self._seed(s, 'C2', 'B')
+
+        # Broad qualifier — no ID pattern — matches both C1 and C2.
+        # Exactly one should be removed; the other must remain intact.
+        s.handle_transfer_requests([
+            TransferRequestCriteria(
+                container_query_args=ContainerQualifier(),
+                delete_container_on_transfer=True,
+            )
+        ])
+
+        locs = s.get_locs()
+        remaining = [cid for loc in locs.values() for cid in loc.ContainerIds]
+        self.assertEqual(len(remaining), 1, "Exactly one container should remain after removing one")
+
     def test_both_source_and_container_consistent(self):
         """When both source and container criteria are given and consistent, transfer succeeds."""
         from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria
