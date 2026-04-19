@@ -3,7 +3,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dataclasses import dataclass, field, replace
-from typing import Iterable, Dict, List
+from typing import Dict, List
 import logging
 from coopstorage.storage.loc_load.location import Location
 from cooptools.geometry_utils import vector_utils as vec
@@ -84,26 +84,79 @@ class AisleConfig:
         return locations
     
 @dataclass(frozen=True, slots=True)
+class ZoneProjection:
+    rotation_z: float = 0.0   # radians; rotation around Z axis, about the zone origin
+    z_offset: float = 0.0     # vertical translation applied after rotation
+
+    def apply(self, point: vec.FloatVec, pivot: vec.FloatVec = (0.0, 0.0, 0.0)) -> vec.FloatVec:
+        px, py, _ = pivot
+        x, y, z = point
+        rx, ry = x - px, y - py
+        cos_t = math.cos(self.rotation_z)
+        sin_t = math.sin(self.rotation_z)
+        return (cos_t * rx - sin_t * ry + px,
+                sin_t * rx + cos_t * ry + py,
+                z + self.z_offset)
+
+    def rotate_axis(self, axis: int) -> int:
+        """Map a canonical axis through the Z rotation to the nearest resulting axis."""
+        if axis == 2 or self.rotation_z == 0.0:
+            return axis
+        unit = [0.0, 0.0]
+        unit[axis] = 1.0
+        cos_t = math.cos(self.rotation_z)
+        sin_t = math.sin(self.rotation_z)
+        rx = abs(cos_t * unit[0] - sin_t * unit[1])
+        ry = abs(sin_t * unit[0] + cos_t * unit[1])
+        return 0 if rx >= ry else 1
+
+    def rotate_dims(self, dims: vec.FloatVec) -> vec.FloatVec:
+        """Compute the axis-aligned extents of the rotated location box."""
+        if self.rotation_z == 0.0:
+            return dims
+        cos_t = abs(math.cos(self.rotation_z))
+        sin_t = abs(math.sin(self.rotation_z))
+        return (cos_t * dims[0] + sin_t * dims[1],
+                sin_t * dims[0] + cos_t * dims[1],
+                dims[2])
+
+@dataclass(frozen=True, slots=True)
 class ZoneConfig:
     aisles: int = 10
     aisle_config: AisleConfig = field(default_factory=AisleConfig)
     inter_aisle_spacing: float = 2.0
     origin: vec.FloatVec = (0.0, 0.0, 0.0)
+    projection: ZoneProjection = None
 
     def locs(self, zone_idx: int = 0, tree: LocationMapTree = None) -> List[Location]:
         locations = []
         for aisle_idx in range(self.aisles):
             aisle_origin = vec.add_vectors([self.origin, (0, aisle_idx * (self.inter_aisle_spacing + self.aisle_config.net_aisle_width()), 0)])
             locations.extend(self.aisle_config.locs(zone_idx, aisle_idx, aisle_origin, tree=tree))
+
+        if self.projection is not None and (self.projection.rotation_z != 0.0 or self.projection.z_offset != 0.0):
+            locations = [
+                Location(
+                    id=loc.Id,
+                    location_meta=replace(
+                        loc.Meta,
+                        dims=self.projection.rotate_dims(loc.Meta.dims),
+                        channel_axis=self.projection.rotate_axis(loc.Meta.channel_axis),
+                    ),
+                    coords=self.projection.apply(loc.Coords, pivot=self.origin),
+                )
+                for loc in locations
+            ]
+
         return locations
 
 @dataclass(frozen=True, slots=True)
 class StorageConfig:
-    zones_config: Iterable[ZoneConfig] = field(default_factory=list)
+    zones_config: Dict[str, ZoneConfig] = field(default_factory=dict)
 
     def locs(self, tree: LocationMapTree = None) -> List[Location]:
         locations = []
-        for zone_idx, zone_config in enumerate(self.zones_config):
+        for zone_idx, zone_config in enumerate(self.zones_config.values()):
             locations.extend(zone_config.locs(zone_idx=zone_idx, tree=tree))
         return locations
 
@@ -160,6 +213,61 @@ def build_showcase_storage(
     return Storage(locs=locations, reservation_provider=reservation_provider)
 
 
+def build_flow_rack_zone(
+    bays: int = 10,
+    shelves: int = 5,
+    channel_depth: int = 4,
+    lanes_per_bay: int = 2,
+    lane_width: float = 5.0,
+    loc_depth: float = 20.0,
+    shelf_height: float = 6.0,
+    inter_bay_spacing: float = 1.0,
+    aisle_width: float = 15.0,
+    channel_processor: cps.IChannelProcessor = None,
+    origin: vec.FloatVec = (0.0, 0.0, 0.0),
+    projection: ZoneProjection = None,
+) -> ZoneConfig:
+    """Construct a single-aisle flow rack zone.
+
+    Each location is a FIFO flow channel `channel_depth` slots deep along Y.
+    Per-slot depth is inferred as `loc_depth / channel_depth`.
+
+    Pass the returned ZoneConfig to StorageConfig:
+        StorageConfig(zones_config={"flow_rack": build_flow_rack_zone(...)}).storage()
+    """
+    if channel_processor is None:
+        channel_processor = cps.FIFOFlowChannelProcessor()
+
+    loc_meta = dcs.LocationMeta(
+        dims=(lane_width, loc_depth, shelf_height),
+        channel_processor=channel_processor,
+        capacity=channel_depth,
+        channel_axis=1,
+    )
+
+    bay_cfg = BayConfig(
+        loc_config=loc_meta,
+        locations_per_bay=lanes_per_bay,
+        inter_bay_spacing=inter_bay_spacing,
+        bay_height=shelf_height,
+        shelves=shelves,
+        side_designator="L",
+    )
+
+    return ZoneConfig(
+        aisles=1,
+        aisle_config=AisleConfig(
+            bays=bays,
+            left_bay_config=bay_cfg,
+            right_bay_config=None,
+            aisle_width=aisle_width,
+        ),
+        inter_aisle_spacing=0.0,
+        origin=origin,
+        projection=projection,
+    )
+
+
 if __name__ == "__main__":
     from pprint import pprint
     from coopstorage.viz_helper import start_visualizer
@@ -179,7 +287,7 @@ if __name__ == "__main__":
 
 
         storage = StorageConfig(
-                zones_config=[ZoneConfig(
+                zones_config={"main": ZoneConfig(
                     aisles=20,
                     aisle_config=AisleConfig(
                         bays=20,
@@ -189,7 +297,7 @@ if __name__ == "__main__":
                     ),
                     inter_aisle_spacing=2.0,
                     origin=(0.0, 0.0, 0.0),
-                )]
+                )}
             ).storage()
         
         print(f"Built storage with {len(storage.Locations)} locations")

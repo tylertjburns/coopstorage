@@ -88,7 +88,7 @@ def generate_router_factory(storage: Storage) -> APIRouter:
         Returns a summary of what was registered.
         """
         config = StorageConfig(
-            zones_config=[z.as_zone_config() for z in body.zones]
+            zones_config={f"zone_{idx}": z.as_zone_config() for idx, z in enumerate(body.zones)}
         )
         tree = storage.LocationMapTree
         locs = config.locs(tree=tree)
