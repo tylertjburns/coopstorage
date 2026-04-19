@@ -1,5 +1,4 @@
 import logging
-import uuid
 
 import coopstorage.storage.loc_load.dcs as dcs
 from cooptools.protocols import UniqueIdentifier
@@ -24,7 +23,6 @@ class Location:
             capacity=location_meta.capacity,
             init_state=channel_state
         )
-        self._reservation_token = None
         self._validate_geometry()
 
     def _validate_geometry(self):
@@ -121,17 +119,6 @@ class Location:
 
     def clear_containers(self):
         self._channel.clear()
-
-    def set_reservation_token(self, token: uuid.UUID):
-        self._reservation_token = token
-
-    def remove_reservation_token(self, token: uuid.UUID):
-        if self._reservation_token == token:
-            self._reservation_token = None
-
-    @property
-    def Reserved(self) -> bool:
-        return self._reservation_token is not None
 
     def verify_removable(self, container_id: UniqueIdentifier):
         return self._meta.channel_processor.verify_removable(container_id, state=self._channel.State)

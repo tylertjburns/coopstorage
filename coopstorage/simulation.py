@@ -93,72 +93,32 @@ def run_simulation(
         storage.handle_transfer_requests(
             [TransferRequestCriteria(
                 new_container=dcs.Container(id=cid),
-                dest_loc_query_args=LocationQualifier(at_least_capacity=1, has_addable_position=True),
+                dest_loc_query_args=LocationQualifier(at_least_capacity=1, 
+                                                      has_addable_position=True,
+                                                      reserved=False),
             )],
             dest_loc_evaluator=dest_loc_evaluator,
         )
 
-    def _unblock(target_container) -> bool:
-        container_locs = storage.ContainerLocs
-        target_loc = next(
-            (loc for c, loc in container_locs.items() if c.id == target_container.id),
-            None,
-        )
-        if target_loc is None:
-            return False
-        state    = [target_loc.ContainerPositions.get(i) for i in range(target_loc.Capacity)]
-        cp       = target_loc.Meta.channel_processor
-        blockers = cp.get_blocking_loads(target_container.id, state)
-        for blocker_id in blockers:
-            storage.handle_transfer_requests(
-                [TransferRequestCriteria(
-                    container_query_args=ContainerQualifier(
-                        pattern=PatternMatchQualifier(id=blocker_id)
-                    ),
-                    dest_loc_query_args=LocationQualifier(
-                        at_least_capacity=1,
-                        has_addable_position=True,
-                        id_pattern=PatternMatchQualifier(
-                            white_list_black_list_qualifier=WhiteBlackListQualifier(
-                                black_list=[str(target_loc.Id)]
-                            )
-                        ),
-                        reserved=False
-                    ),
-                )],
-                dest_loc_evaluator=evaluators.random_score,
-            )
-        return True
-
     def _do_remove():
-        containers = list(storage.get_containers().values())
-        if not containers:
-            return
-        c = random.choice(containers)
-        if not _unblock(c):
-            return
         storage.handle_transfer_requests([
             TransferRequestCriteria(
                 container_query_args=ContainerQualifier(
-                    pattern=PatternMatchQualifier(id=c.id)
+                    reserved=False
                 ),
                 delete_container_on_transfer=True,
             )
         ])
 
     def _do_move():
-        containers = list(storage.get_containers().values())
-        if not containers:
-            return
-        c = random.choice(containers)
-        if not _unblock(c):
-            return
         storage.handle_transfer_requests(
             [TransferRequestCriteria(
                 container_query_args=ContainerQualifier(
-                    pattern=PatternMatchQualifier(id=c.id)
+                    reserved=False
                 ),
-                dest_loc_query_args=LocationQualifier(at_least_capacity=1, has_addable_position=True),
+                dest_loc_query_args=LocationQualifier(at_least_capacity=1, 
+                                                      has_addable_position=True,
+                                                      reserved=False),
             )],
             dest_loc_evaluator=dest_loc_evaluator,
         )

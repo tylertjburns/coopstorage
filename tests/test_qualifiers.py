@@ -7,8 +7,6 @@ Covers:
                      at_least_capacity, reserved
 """
 import unittest
-import uuid
-
 import coopstorage.storage.loc_load.dcs as dcs
 import coopstorage.storage.loc_load.channel_processors as cps
 from coopstorage.storage.loc_load.location import Location
@@ -113,20 +111,18 @@ class TestLocationQualifier(unittest.TestCase):
 
     def test_reserved_filter_true(self):
         loc = _loc()
-        loc.set_reservation_token(uuid.uuid4())
         q = LocationQualifier(reserved=True)
-        self.assertTrue(q.check_if_qualifies(loc))
+        self.assertTrue(q.check_if_qualifies(loc, is_reserved=lambda _: True))
 
     def test_reserved_filter_false(self):
         loc = _loc()
         q = LocationQualifier(reserved=False)
-        self.assertTrue(q.check_if_qualifies(loc))
+        self.assertTrue(q.check_if_qualifies(loc, is_reserved=lambda _: False))
 
     def test_reserved_filter_excludes_reserved(self):
         loc = _loc()
-        loc.set_reservation_token(uuid.uuid4())
         q = LocationQualifier(reserved=False)
-        self.assertFalse(q.check_if_qualifies(loc))
+        self.assertFalse(q.check_if_qualifies(loc, is_reserved=lambda _: True))
 
     def test_max_dims_qualifies(self):
         loc = _loc(dims=(5.0, 5.0, 5.0))
@@ -266,7 +262,7 @@ class TestLocationQualifier(unittest.TestCase):
             at_least_capacity=2,
             reserved=False,
         )
-        self.assertTrue(q.check_if_qualifies(loc))
+        self.assertTrue(q.check_if_qualifies(loc, is_reserved=lambda _: False))
 
 
 class TestLocationQualifierIsOccupied(unittest.TestCase):

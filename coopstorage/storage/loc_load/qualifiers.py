@@ -6,6 +6,8 @@ import cooptools.geometry_utils.vector_utils as vec
 from cooptools.qualifiers import PatternMatchQualifier, WhiteBlackListQualifier
 from cooptools.protocols import UniqueIdentifier
 
+ReservedProvider = Callable[[UniqueIdentifier], bool]
+
 # Callable that retrieves Container objects for a given set of IDs.
 # Signature: (ids: Iterable[UniqueIdentifier]) -> Dict[UniqueIdentifier, dcs.Container]
 ContainerByIdProvider = Callable[[Iterable[UniqueIdentifier]], Dict[UniqueIdentifier, dcs.Container]]
@@ -33,8 +35,9 @@ class ContainerQualifier:
     pattern: Optional[PatternMatchQualifier] = None
     max_dims: Optional[vec.FloatVec] = None
     min_dims: Optional[vec.FloatVec] = None
-
-    def check_if_qualifies(self, container: dcs.Container) -> bool:
+    reserved:  Optional[bool] = None
+    
+    def check_if_qualifies(self, container: dcs.Container, is_reserved: Optional[ReservedProvider] = None) -> bool:
         # Disqualify on Pattern
         if self.pattern is not None and not _pattern_qualifies(self.pattern, str(container.id)):
             return False
@@ -46,6 +49,13 @@ class ContainerQualifier:
         # Disqualify on Min Dims
         if self.min_dims is not None and not _dims_within_min(container.uom.dimensions, self.min_dims):
             return False
+
+        # Disqualify on reserved
+        if self.reserved is not None:
+            if is_reserved is None:
+                raise ValueError("is_reserved is required when using reserved qualifier")
+            if is_reserved(container.id) != self.reserved:
+                return False
 
         return True
 
@@ -69,7 +79,9 @@ class LocationQualifier:
     def check_if_qualifies(self,
                            loc: Location,
                            container_provider: ContainerByIdProvider = None,
-                           container: Optional[dcs.Container] = None) -> bool:
+                           container: Optional[dcs.Container] = None,
+                           is_reserved: Optional[ReservedProvider] = None,
+                           is_container_reserved: Optional[ReservedProvider] = None) -> bool:
         # Disqualify on Pattern
         if self.id_pattern is not None and not _pattern_qualifies(self.id_pattern, str(loc.Id)):
             return False
@@ -92,7 +104,7 @@ class LocationQualifier:
             if container_provider is None:
                 raise ValueError("container_provider is required when using has_any_containers qualifier")
             loc_containers = container_provider(loc.ContainerIds).values()
-            if not any(q.check_if_qualifies(container) for container in loc_containers for q in self.has_any_containers):
+            if not any(q.check_if_qualifies(container, is_reserved=is_container_reserved) for container in loc_containers for q in self.has_any_containers):
                 return False
 
         # Disqualify if doesn't have all of has_all_containers
@@ -103,7 +115,7 @@ class LocationQualifier:
                 raise ValueError("container_provider is required when using has_all_containers qualifier")
             loc_containers = list(container_provider(loc.ContainerIds).values())
             if not all(
-                any(q.check_if_qualifies(container) for container in loc_containers)
+                any(q.check_if_qualifies(container, is_reserved=is_container_reserved) for container in loc_containers)
                 for q in self.has_all_containers
             ):
                 return False
@@ -119,8 +131,11 @@ class LocationQualifier:
                 return False
 
         # Disqualify on reserved
-        if self.reserved is not None and loc.Reserved != self.reserved:
-            return False
+        if self.reserved is not None:
+            if is_reserved is None:
+                raise ValueError("is_reserved is required when using reserved qualifier")
+            if is_reserved(loc.Id) != self.reserved:
+                return False
 
         # Disqualify on occupied state: True requires at least one container, False requires none
         if self.is_occupied is not None:

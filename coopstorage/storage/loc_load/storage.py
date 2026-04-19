@@ -8,7 +8,8 @@ from cooptools.reservation.reservationmanager import ReservationManager
 import coopstorage.storage.loc_load.dcs as dcs
 import coopstorage.storage.loc_load.exceptions as errs
 import coopstorage.storage.loc_load.container_state_mutations as csm
-from typing import Dict, Iterable, Callable, List, Type, Tuple
+import coopstorage.storage.loc_load.evaluators as evaluators
+from typing import Dict, Iterable, Callable, List, Optional, Type, Tuple
 from cooptools.protocols import UniqueIdentifier
 from coopstorage.storage.loc_load.location import Location
 import coopstorage.storage.loc_load.qualifiers as qs
@@ -16,7 +17,7 @@ from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria
 from coopstorage.storage.loc_load.reservation_provider import ReservationProvider, PassthroughReservationProvider
 import cooptools.common as comm
 from coopstorage.storage.loc_load import data as data
-from cooptools.qualifiers import PatternMatchQualifier
+from cooptools.qualifiers import PatternMatchQualifier, WhiteBlackListQualifier
 
 from pubsub import pub
 from coopstorage.enums import StorageTopic
@@ -126,9 +127,12 @@ class Storage:
     def get_locs(self,
                  criteria: qs.LocationQualifier=None) -> Dict[UniqueIdentifier, Location]:
         with self._lock:
+            is_reserved = self._is_location_reserved if criteria is not None and criteria.reserved is not None else None
             return self._data_store.LocationsData.get(
                 criteria,
-                container_provider=self._data_store.ContainersData.get
+                container_provider=self._data_store.ContainersData.get,
+                is_reserved=is_reserved,
+                is_container_reserved=self._is_container_reserved,
             )
 
     def register_containers(self, containers: Iterable[dcs.Container]=None):
@@ -149,7 +153,8 @@ class Storage:
     def get_containers(self,
                   criteria: qs.ContainerQualifier=None)->Dict[UniqueIdentifier, dcs.Container]:
         with self._lock:
-            return self._data_store.ContainersData.get(qualifier=criteria)
+            is_reserved = self._is_container_reserved if criteria is not None and criteria.reserved is not None else None
+            return self._data_store.ContainersData.get(qualifier=criteria, is_reserved=is_reserved)
 
     def add_content_to_container_at_location(self,
                                              loc_id: UniqueIdentifier,
@@ -203,10 +208,12 @@ class Storage:
             return list(self._data_store.LocationsData.iter_values())
 
         container_provider = self._data_store.ContainersData.get
+        is_reserved = self._is_location_reserved if filter is not None and filter.reserved is not None else None
         return [
             loc for loc in self._data_store.LocationsData.iter_values()
             if filter is None or filter.check_if_qualifies(
-                loc, container_provider=container_provider, container=container)
+                loc, container_provider=container_provider, container=container,
+                is_reserved=is_reserved, is_container_reserved=self._is_container_reserved)
         ]
 
 
@@ -224,9 +231,11 @@ class Storage:
         # Fast path: no custom evaluator — return the first qualifying location immediately
         if evaluator is None:
             container_provider = self._data_store.ContainersData.get
+            is_reserved = self._is_location_reserved if filter is not None and filter.reserved is not None else None
             for loc in self._data_store.LocationsData.iter_values():
                 if filter is None or filter.check_if_qualifies(
-                        loc, container_provider=container_provider, container=container):
+                        loc, container_provider=container_provider, container=container,
+                        is_reserved=is_reserved, is_container_reserved=self._is_container_reserved):
                     return loc
             raise errs.NoLocationsMatchFilterCriteriaException(filter)
 
@@ -262,8 +271,11 @@ class Storage:
 
         elif criteria.container_query_args is not None:
             # Container only: find it across all storage, then infer source location
-            container = comm.filter(self._data_store.ContainersData.get().values(),
-                                    criteria.container_query_args.check_if_qualifies)[0]
+            cq_is_reserved = self._is_container_reserved if criteria.container_query_args.reserved is not None else None
+            container = comm.filter(
+                self._data_store.ContainersData.get().values(),
+                lambda c: criteria.container_query_args.check_if_qualifies(c, is_reserved=cq_is_reserved)
+            )[0]
             source = self.select_location(filter=qs.LocationQualifier(
                 has_all_containers=[criteria.container_query_args]
             ))
@@ -290,9 +302,47 @@ class Storage:
                     loc: Location,
                     filter: qs.ContainerQualifier):
         containers = list(self._data_store.ContainersData.get(ids=loc.ContainerIds).values())
-        ret = comm.filter(containers, qualifier=filter.check_if_qualifies)
+        is_reserved = self._is_container_reserved if filter.reserved is not None else None
+        ret = comm.filter(containers, qualifier=lambda c: filter.check_if_qualifies(c, is_reserved=is_reserved))
         return ret[0]
 
+
+    def _unblock(self,
+                 container: dcs.Container,
+                 source_loc: Location,
+                 unblock_dest_evaluator: Callable[[Location], float],
+                 _unblocking_ids: set) -> None:
+        """Move any containers that block *container* from being removed at *source_loc*.
+
+        Raises UnblockDeadlockError if a circular blocking chain is detected.
+        """
+        state = [source_loc.ContainerPositions.get(i) for i in range(source_loc.Capacity)]
+        cp = source_loc.Meta.channel_processor
+        blockers = cp.get_blocking_loads(container.id, state)
+
+        for blocker_id in blockers:
+            if str(blocker_id) in _unblocking_ids:
+                raise errs.UnblockDeadlockError(container.id, blocker_id, _unblocking_ids)
+            _unblocking_ids.add(str(blocker_id))
+            self.handle_transfer_requests(
+                [TransferRequestCriteria(
+                    container_query_args=qs.ContainerQualifier(
+                        pattern=PatternMatchQualifier(id=blocker_id)
+                    ),
+                    dest_loc_query_args=qs.LocationQualifier(
+                        at_least_capacity=1,
+                        has_addable_position=True,
+                        id_pattern=PatternMatchQualifier(
+                            white_list_black_list_qualifier=WhiteBlackListQualifier(
+                                black_list=[str(source_loc.Id)]
+                            )
+                        ),
+                        reserved=False,
+                    ),
+                )],
+                dest_loc_evaluator=unblock_dest_evaluator,
+                _unblocking_ids=_unblocking_ids,
+            )
 
     def _handle_transfer_request(self, transfer_request: TransferRequest):
         updated_src = None
@@ -331,13 +381,27 @@ class Storage:
 
     def handle_transfer_requests(self,
                                  transfer_request_criteria: Iterable[TransferRequestCriteria],
-                                 dest_loc_evaluator: Callable[[Location], float] = None):
+                                 dest_loc_evaluator: Callable[[Location], float] = None,
+                                 unblock_dest_evaluator: Optional[Callable[[Location], float]] = None,
+                                 _unblocking_ids: Optional[set] = None):
+        _resolved_evaluator = unblock_dest_evaluator if unblock_dest_evaluator is not None else evaluators.random_score
         with self._lock:
             for criteria in transfer_request_criteria:
+                # Each top-level criteria gets a fresh unblock chain; recursive calls inherit.
+                unblocking = _unblocking_ids if _unblocking_ids is not None else set()
+
                 request = self.resolve_transfer_request_criteria(
                     criteria=criteria,
                     dest_loc_evaluator=dest_loc_evaluator,
                 )
+
+                if request.source_loc is not None:
+                    unblocking.add(str(request.container.id))
+                    self._unblock(request.container, 
+                                  request.source_loc, 
+                                  _resolved_evaluator, 
+                                  unblocking)
+
                 request = request.try_acquire_reservations(self._reservation_provider)
                 self._data_store.TransferRequestsData.add([request])
                 self._data_store.ContainersData.add_or_update(containers=[request.container])
@@ -441,6 +505,20 @@ class Storage:
     def EmptyLocs(self) -> List[Location]:
         """Locations with no containers stored."""
         return [loc for loc in self._data_store.LocationsData.get().values() if len(loc.ContainerIds) == 0]
+
+    def _is_container_reserved(self, container_id) -> bool:
+        return any(
+            req.container_reservation_token is not None and str(req.container.id) == str(container_id)
+            for req in self._data_store.TransferRequestsData.get().values()
+        )
+
+    def _is_location_reserved(self, location_id) -> bool:
+        return any(
+            req.destination_reservation_token is not None
+            and req.dest_loc is not None
+            and str(req.dest_loc.Id) == str(location_id)
+            for req in self._data_store.TransferRequestsData.get().values()
+        )
 
     def get_reserved_container_ids(self) -> set:
         """Return the set of container IDs that currently have an active reservation."""
