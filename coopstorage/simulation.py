@@ -123,6 +123,7 @@ def run_simulation(
                                 black_list=[str(target_loc.Id)]
                             )
                         ),
+                        reserved=False
                     ),
                 )],
                 dest_loc_evaluator=evaluators.random_score,
