@@ -103,7 +103,7 @@ class JwtExchangeReservationProvider:
             return self._post(path, body, _re_auth=_re_auth, attempts=attempts - 1)
         elif resp.status_code >= 400:
             logging.error(f"Request to {path} failed with status {resp.status_code}: {resp.text}")
-            raise requests.HTTPError(f"Request to {path} failed with status {resp.status_code}: {resp.text}")   
+            raise requests.HTTPError(f"Request to {path} failed with status {resp.status_code}: {resp.text}")
         resp.raise_for_status()
         return resp.json()
 
@@ -111,6 +111,7 @@ class JwtExchangeReservationProvider:
         results = self._post('/api/v1/Reservation/reserve', [{'requester': requester, 'resource': resource, 'resourceType': resource_type or "storage" }])
         if results and results[0].get('status') == 'SUCCESS':
             return resource
+        logging.warning(f"Reserve non-SUCCESS: resource={resource} requester={requester} response={results}")
         return None
 
     def unreserve(self, resource: str, requester: str) -> bool:

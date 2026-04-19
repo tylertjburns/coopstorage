@@ -2,6 +2,7 @@ import logging
 import pprint
 import threading
 import uuid
+from dataclasses import replace
 
 from cooptools.register import Register
 from cooptools.reservation.reservationmanager import ReservationManager
@@ -394,16 +395,22 @@ class Storage:
                     dest_loc_evaluator=dest_loc_evaluator,
                 )
 
-                if request.source_loc is not None:
-                    unblocking.add(str(request.container.id))
-                    self._unblock(request.container, 
-                                  request.source_loc, 
-                                  _resolved_evaluator, 
-                                  unblocking)
-
+                # Reserve before unblocking — dest_loc is recorded in TransferRequestsData,
+                # so _unblock's reserved=False dest filter will naturally exclude it.
                 request = request.try_acquire_reservations(self._reservation_provider)
                 self._data_store.TransferRequestsData.add([request])
                 self._data_store.ContainersData.add_or_update(containers=[request.container])
+
+                if request.source_loc is not None:
+                    unblocking.add(str(request.container.id))
+                    self._unblock(request.container,
+                                  request.source_loc,
+                                  _resolved_evaluator,
+                                  unblocking)
+                    # Refresh source_loc — _unblock modifies the location in the data store
+                    # (removes blockers); the snapshot captured before unblocking is stale.
+                    src_id = request.source_loc.get_id()
+                    request = replace(request, source_loc=self._data_store.LocationsData.get(ids=[src_id])[src_id])
 
                 if request.Ready:
                     self._handle_transfer_request(request)
