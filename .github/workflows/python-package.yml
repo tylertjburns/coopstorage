@@ -20,8 +20,7 @@ on:
       - 'requirements.txt'
 
 jobs:
-  build:
-
+  validate:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -44,13 +43,12 @@ jobs:
       run: |
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude venv,docs,build
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude venv,docs,build
-    - name: Test with pytest
+    - name: Functional tests
       run: |
-        pytest tests/
+        pytest tests/ --ignore=tests/test_storage_benchmark.py
 
   publish:
-
-    needs: build
+    needs: validate
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
 
@@ -96,7 +94,6 @@ jobs:
         git push origin master --tags
 
   docker:
-
     needs: publish
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -128,3 +125,39 @@ jobs:
         tags: |
           tylertjburns/coopstorage:${{ steps.version.outputs.version }}
           tylertjburns/coopstorage:latest
+
+  benchmark:
+    needs: docker
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install pytest
+        grep -v "^coopmongo" requirements.txt | pip install -r /dev/stdin
+        pip install --no-deps coopmongo
+        pip install --no-deps -e .
+    - name: Run performance benchmarks
+      run: |
+        pytest tests/test_storage_benchmark.py -v --tb=short 2>&1 | tee benchmark_results.txt
+    - name: Write benchmark summary
+      if: always()
+      run: |
+        echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        cat benchmark_results.txt >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+    - name: Upload benchmark results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results
+        path: benchmark_results.txt
+        retention-days: 90
