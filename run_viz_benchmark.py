@@ -26,6 +26,8 @@ import time
 import unittest
 from pathlib import Path
 
+from cooptools import loggingHelpers as lh
+
 # ── make sure the package is importable when run from the project root ────────
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -47,7 +49,10 @@ import coopstorage.storage.loc_load.dcs as dcs
 import coopstorage.storage.loc_load.channel_processors as cps
 from dataclasses import replace
 from coopstorage.viz_helper import start_visualizer
-from coopstorage.storage.loc_load.reservation_provider import LockerApiReservationProvider
+from coopstorage.storage.loc_load.reservation_provider import (
+    ApiKeyReservationProvider,
+    JwtExchangeReservationProvider,
+)
 from coopstorage.storage.loc_load.event_bus import StorageEvent
 
 # ── config maps ───────────────────────────────────────────────────────────────
@@ -78,16 +83,26 @@ def main():
                         help="Logging level (default: WARNING)")
     parser.add_argument("--reservation-url", default=None,
                         help="Base URL of the Locker reservation API (e.g. http://localhost:5001)")
+    parser.add_argument("--api-key", default=None,
+                        help="API key for the Locker reservation API (required when --reservation-url is set)")
+    parser.add_argument("--auth-mode", default="jwt", choices=["jwt", "apikey"],
+                        help="Auth mode for the reservation API: jwt (default) or apikey")
     args = parser.parse_args()
 
-    reservation_provider = (
-        LockerApiReservationProvider(args.reservation_url)
-        if args.reservation_url else None
-    )
+    if args.reservation_url and not args.api_key:
+        parser.error("--api-key is required when --reservation-url is set")
+
+    if args.reservation_url:
+        if args.auth_mode == "jwt":
+            reservation_provider = JwtExchangeReservationProvider(args.reservation_url, args.api_key)
+        else:
+            reservation_provider = ApiKeyReservationProvider(args.reservation_url, args.api_key)
+    else:
+        reservation_provider = None
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),
-        format="%(levelname)s  %(name)s  %(message)s",
+        format=lh.BASE_LOG_FORMAT,
     )
 
     viz_url = f"http://{args.host}:{args.port}/static/index.html"

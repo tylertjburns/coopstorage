@@ -6,3 +6,4 @@ PyPubSub
 uvicorn
 matplotlib>=3.6
 numpy>=1.26
+requests

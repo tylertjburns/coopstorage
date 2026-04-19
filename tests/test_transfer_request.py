@@ -16,6 +16,9 @@ from coopstorage.storage.loc_load.transferRequest import (
     TransferRequestCriteria,
     TransferRequest,
 )
+from coopstorage.storage.loc_load.reservation_provider import PassthroughReservationProvider
+
+_PASSTHROUGH = PassthroughReservationProvider()
 from coopstorage.storage.loc_load.qualifiers import LocationQualifier, ContainerQualifier
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -121,7 +124,7 @@ class TestTransferRequestReady(unittest.TestCase):
             container=_load(),
             source_loc=None,
             dest_loc=dest,
-        )
+        ).try_acquire_reservations(_PASSTHROUGH)
         self.assertTrue(tr.Ready)
 
     def test_not_ready_dest_full(self):
@@ -144,7 +147,7 @@ class TestTransferRequestReady(unittest.TestCase):
             container=_load('L1'),
             source_loc=src,
             dest_loc=dest,
-        )
+        ).try_acquire_reservations(_PASSTHROUGH)
         self.assertTrue(tr.Ready)
 
     def test_not_ready_container_not_accessible_in_source(self):
@@ -171,7 +174,7 @@ class TestTransferRequestReady(unittest.TestCase):
             container=_load('L1'),
             source_loc=src,
             dest_loc=None,
-        )
+        ).try_acquire_reservations(_PASSTHROUGH)
         self.assertTrue(tr.Ready)
 
 
