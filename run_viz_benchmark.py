@@ -11,6 +11,7 @@ Usage
     python run_viz_benchmark.py --mode sim              # continuous randomized simulation
     python run_viz_benchmark.py --mode showcase         # one of each processor type, lock-step
     python run_viz_benchmark.py --mode defaultzone         # StorageConfig(zones=[ZoneConfig()]) + sim
+    python run_viz_benchmark.py --mode multizone           # VNA zone + flow rack zone, side by side
     python run_viz_benchmark.py --delay 0.05            # 50ms between ops
     python run_viz_benchmark.py --no-browser            # don't auto-open browser
     python run_viz_benchmark.py --port 1219             # custom port (default 1219)
@@ -20,6 +21,7 @@ The visualizer is served at:  http://localhost:<port>/static/index.html
 
 import argparse
 import logging
+import math
 import sys
 import threading
 import time
@@ -43,7 +45,8 @@ from coopstorage.simulation import (
 from coopstorage.storage_generators import (
     build_all_processor_storage,
     build_showcase_storage,
-    StorageConfig, ZoneConfig, AisleConfig, BayConfig,
+    build_flow_rack_zone,
+    StorageConfig, ZoneConfig, AisleConfig, BayConfig, ZoneProjection,
 )
 import coopstorage.storage.loc_load.dcs as dcs
 import coopstorage.storage.loc_load.channel_processors as cps
@@ -70,7 +73,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run storage benchmark/sim with live visualizer")
     parser.add_argument("--config",     default="small",
                         choices=list(_CONFIGS), help="Config size (default: small)")
-    parser.add_argument("--mode",       default="benchmark", choices=["benchmark", "sim", "showcase", "defaultzone"],
+    parser.add_argument("--mode",       default="benchmark", choices=["benchmark", "sim", "showcase", "defaultzone", "multizone"],
                         help="'benchmark' runs a fixed workload; 'sim' runs continuously (default: benchmark)")
     parser.add_argument("--delay",      type=float, default=0.02,
                         help="Seconds to sleep between transfer ops (default: 0.02)")
@@ -137,14 +140,57 @@ def main():
             )
         )
         storage = StorageConfig(
-            zones_config=[ZoneConfig(
+            zones_config={"default": ZoneConfig(
                 aisle_config=AisleConfig(
                     left_bay_config=replace(_bay, side_designator="L"),
                     right_bay_config=replace(_bay, side_designator="R"),
                 ),
-            )]
+            )}
         ).storage(reservation_provider=reservation_provider)
         print(f"\n  CoopStorage Visualizer — One Aisle (default StorageConfig)")
+        print(f"  locations={len(storage.Locations):,}  delay={args.delay*1000:.0f}ms/op")
+        print(f"  visualizer -> {viz_url}\n")
+    elif args.mode == "multizone":
+        _bay = BayConfig(
+            loc_config=dcs.LocationMeta(
+                dims=(10, 10, 5),
+                channel_processor=cps.AllAvailableChannelProcessor(),
+                capacity=1,
+            ),
+            locations_per_bay=1,
+            shelves=3,
+            bay_height=6.0,
+            inter_bay_spacing=2.0,
+        )
+        storage = StorageConfig(
+            zones_config={
+                "vna": ZoneConfig(
+                    aisles=5,
+                    aisle_config=AisleConfig(
+                        bays=10,
+                        left_bay_config=replace(_bay, side_designator="L"),
+                        right_bay_config=replace(_bay, side_designator="R"),
+                        aisle_width=20.0,
+                    ),
+                    inter_aisle_spacing=2.0,
+                    origin=(0.0, 0.0, 0.0),
+                ),
+                "flow_rack": build_flow_rack_zone(
+                    bays=8,
+                    shelves=4,
+                    channel_depth=4,
+                    lanes_per_bay=2,
+                    lane_width=10.0,
+                    loc_depth=20.0,
+                    shelf_height=5.0,
+                    inter_bay_spacing=1.0,
+                    aisle_width=15.0,
+                    origin=(200.0, 0.0, 0.0),
+                    projection=ZoneProjection(rotation_z=math.pi / 2),
+                ),
+            }
+        ).storage(reservation_provider=reservation_provider)
+        print(f"\n  CoopStorage Visualizer — Multizone (VNA + flow rack)")
         print(f"  locations={len(storage.Locations):,}  delay={args.delay*1000:.0f}ms/op")
         print(f"  visualizer -> {viz_url}\n")
 
@@ -163,7 +209,7 @@ def main():
 
     # 2. Run workload
     try:
-        if args.mode in ("sim", "defaultzone"):
+        if args.mode in ("sim", "defaultzone", "multizone"):
             print(f"  Running simulation (delay={args.delay*1000:.0f}ms between ops,"
                   f" Ctrl+C to stop)…\n")
             stop_event = threading.Event()
