@@ -10,7 +10,6 @@ Covers:
 - to_jsonable_dict / from_jsonable_dict round-trip
 """
 import unittest
-import uuid
 
 import coopstorage.storage.loc_load.dcs as dcs
 import coopstorage.storage.loc_load.channel_processors as cps
@@ -69,10 +68,6 @@ class TestLocationCreation(unittest.TestCase):
         loc = _fifo_loc()
         self.assertEqual(loc.ContainerIds, [])
         self.assertEqual(loc.AvailableCapacity, 3)
-
-    def test_not_reserved_by_default(self):
-        loc = _fifo_loc()
-        self.assertFalse(loc.Reserved)
 
 
 # ── store_containers ───────────────────────────────────────────────────────────────
@@ -149,32 +144,6 @@ class TestRemoveLoads(unittest.TestCase):
         loc.clear_containers()
         self.assertEqual(loc.ContainerIds, [])
         self.assertEqual(loc.AvailableCapacity, loc.Capacity)
-
-
-# ── Reservation ───────────────────────────────────────────────────────────────
-
-class TestReservation(unittest.TestCase):
-
-    def test_set_reservation_token(self):
-        loc = _fifo_loc()
-        token = uuid.uuid4()
-        loc.set_reservation_token(token)
-        self.assertTrue(loc.Reserved)
-
-    def test_remove_correct_token_clears_reservation(self):
-        loc = _fifo_loc()
-        token = uuid.uuid4()
-        loc.set_reservation_token(token)
-        loc.remove_reservation_token(token)
-        self.assertFalse(loc.Reserved)
-
-    def test_remove_wrong_token_does_not_clear(self):
-        loc = _fifo_loc()
-        token = uuid.uuid4()
-        wrong = uuid.uuid4()
-        loc.set_reservation_token(token)
-        loc.remove_reservation_token(wrong)
-        self.assertTrue(loc.Reserved)
 
 
 # ── Serialization ─────────────────────────────────────────────────────────────

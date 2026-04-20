@@ -1,7 +1,7 @@
 from cooptools.dataStore.inMemoryDataStore import InMemoryDataStore
 from cooptools.dataStore.dataStoreProtocol import DataStoreProtocol
 import coopstorage.storage.loc_load.qualifiers as qs
-from typing import Self, List, Iterable, Dict
+from typing import Self, List, Iterable, Dict, Optional
 from coopstorage.storage.loc_load import dcs
 from coopstorage.storage.loc_load.location import Location
 from coopstorage.storage.loc_load.transferRequest import TransferRequest
@@ -14,10 +14,11 @@ class ContainerDataStore:
 
     def get(self,
             ids: Iterable[UniqueIdentifier]=None,
-            qualifier: qs.ContainerQualifier=None) -> Dict[UniqueIdentifier, dcs.Container]:
+            qualifier: qs.ContainerQualifier=None,
+            is_reserved: Optional[qs.ReservedProvider]=None) -> Dict[UniqueIdentifier, dcs.Container]:
         ret = self._data_store.get(ids=ids, id_query=qualifier.pattern if qualifier is not None else None)
         if qualifier is not None:
-            ret = {k: v for k, v in ret.items() if qualifier.check_if_qualifies(v)}
+            ret = {k: v for k, v in ret.items() if qualifier.check_if_qualifies(v, is_reserved=is_reserved)}
         return ret
 
     def clear(self) -> Self:
@@ -44,13 +45,17 @@ class LocationDataStore:
     def get(self,
             qualifier: qs.LocationQualifier = None,
             ids: Iterable[UniqueIdentifier] = None,
-            container_provider: qs.ContainerByIdProvider = None) -> Dict[UniqueIdentifier, Location]:
+            container_provider: qs.ContainerByIdProvider = None,
+            is_reserved: Optional[qs.ReservedProvider] = None,
+            is_container_reserved: Optional[qs.ReservedProvider] = None) -> Dict[UniqueIdentifier, Location]:
         if ids is not None:
             return self._data_store.get(ids=ids)
 
         ret = self._data_store.get(id_query=qualifier.id_pattern if qualifier is not None else None)
         if qualifier is not None:
-            ret = {k: v for k, v in ret.items() if qualifier.check_if_qualifies(v, container_provider=container_provider)}
+            ret = {k: v for k, v in ret.items() if qualifier.check_if_qualifies(
+                v, container_provider=container_provider,
+                is_reserved=is_reserved, is_container_reserved=is_container_reserved)}
         return ret
 
     def clear(self) -> Self:

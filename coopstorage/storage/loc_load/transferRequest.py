@@ -73,13 +73,17 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
 
     def try_acquire_reservations(self, reservation_provider: ReservationProvider) -> 'TransferRequest':
         requester = str(self.get_id())
-        container_token = reservation_provider.reserve(str(self.container.id), requester, resource_type="container")
+        container_id = str(self.container.id)
+        logger.debug(f"Reserving container={container_id} requester={requester}")
+        container_token = reservation_provider.reserve(container_id, requester, resource_type="container")
         if container_token is not None:
+            logger.debug(f"Container reservation OK: container={container_id} token={container_token}")
             pub.sendMessage(StorageTopic.CONTAINER_RESERVED.value, payload={
-                'container_id': str(self.container.id),
+                'container_id': container_id,
                 'transfer_request_id': requester,
             })
         else:
+            logger.warning(f"Container reservation FAILED: container={container_id} requester={requester}")
             pub.sendMessage(StorageTopic.RESERVATION_FAILED.value, payload={
                 'transfer_request_id': requester,
                 'failed_resource': 'container',
@@ -87,13 +91,17 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
 
         dest_token = None
         if self.dest_loc is not None:
-            dest_token = reservation_provider.reserve(str(self.dest_loc.Id), requester, resource_type="location")
+            dest_id = str(self.dest_loc.Id)
+            logger.debug(f"Reserving dest_loc={dest_id} requester={requester}")
+            dest_token = reservation_provider.reserve(dest_id, requester, resource_type="location")
             if dest_token is not None:
+                logger.debug(f"Dest reservation OK: dest_loc={dest_id} token={dest_token}")
                 pub.sendMessage(StorageTopic.LOCATION_RESERVED.value, payload={
-                    'location_id': str(self.dest_loc.Id),
+                    'location_id': dest_id,
                     'transfer_request_id': requester,
                 })
             else:
+                logger.warning(f"Dest reservation FAILED: dest_loc={dest_id} requester={requester}")
                 pub.sendMessage(StorageTopic.RESERVATION_FAILED.value, payload={
                     'transfer_request_id': requester,
                     'failed_resource': 'destination',
