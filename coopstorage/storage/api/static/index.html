@@ -157,6 +157,43 @@
     .viz-wf-checks input[type="checkbox"] {
       width: 13px; height: 13px; padding: 0; margin: 0; cursor: pointer;
     }
+
+    /* ── Transfer Requests panel ─────────────────────────────────────────────── */
+    #tr-panel {
+      display: none; position: fixed; top: 46px; right: 12px;
+      background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+      padding: 10px 14px; font-family: monospace; font-size: 11px;
+      min-width: 360px; max-width: 520px;
+      max-height: calc(100vh - 70px); overflow-y: auto;
+      z-index: 10;
+    }
+    #tr-panel.visible { display: block; }
+    #tr-panel-header {
+      display: flex; align-items: baseline; gap: 6px;
+      margin-bottom: 8px;
+    }
+    #tr-panel-title { color: #e6edf3; font-size: 12px; font-weight: bold; }
+    #tr-panel-count { color: #8b949e; font-size: 10px; }
+    #tr-empty { color: #484f58; text-align: center; padding: 10px 0; }
+    .tr-table { width: 100%; border-collapse: collapse; }
+    .tr-table th {
+      color: #8b949e; font-size: 10px; text-transform: uppercase;
+      letter-spacing: 0.04em; text-align: left;
+      padding: 2px 8px 5px; border-bottom: 1px solid #21262d;
+    }
+    .tr-table td {
+      padding: 4px 8px; border-bottom: 1px solid #161b22;
+      white-space: nowrap;
+    }
+    .tr-table tr:last-child td { border-bottom: none; }
+    .tr-reserved     { color: #388bfd; }
+    .tr-not-reserved { color: #f85149; }
+    .tr-neutral      { color: #8b949e; }
+    .tr-none-val     { color: #484f58; font-style: italic; }
+    .tr-ready-dot    { display: inline-block; width: 7px; height: 7px;
+                       border-radius: 50%; flex-shrink: 0; }
+    .tr-ready-yes    { background: #3fb950; }
+    .tr-ready-no     { background: #e3b341; }
   </style>
 </head>
 <body>
@@ -176,7 +213,27 @@
   <button class="btn btn-danger" id="btn-clear-locs">Clear Locations</button>
   <span style="width:1px;background:#30363d;height:20px;display:inline-block;margin:0 4px;"></span>
   <button class="btn" id="btn-viz-config">⚙ Viz</button>
+  <button class="btn" id="btn-tr-panel">Transfers</button>
   <span id="hint">Scroll to zoom · Drag to pan</span>
+</div>
+
+<div id="tr-panel">
+  <div id="tr-panel-header">
+    <span id="tr-panel-title">Transfer Requests</span>
+    <span id="tr-panel-count"></span>
+  </div>
+  <div id="tr-empty">No open requests</div>
+  <table class="tr-table" id="tr-table" style="display:none">
+    <thead>
+      <tr>
+        <th>Ready</th>
+        <th>Container</th>
+        <th>From</th>
+        <th>To</th>
+      </tr>
+    </thead>
+    <tbody id="tr-tbody"></tbody>
+  </table>
 </div>
 
 <div id="confirm-overlay">
@@ -473,8 +530,9 @@
 // locations: id → { id, coords:[x,y,z], meta:{dims,channel_processor,capacity,...},
 //                   slots:[id|null,...], containers:{id→{id,uom,contents}},
 //                   tree_path:{zone,aisle,...} }
-const locations  = new Map();
-const containers = new Map();   // flat container registry
+const locations        = new Map();
+const containers       = new Map();   // flat container registry
+const transferRequests = new Map();   // transfer_request_id → { transfer_request_id, container_id, source_loc_id, dest_loc_id }
 
 // ─── Viz config ───────────────────────────────────────────────────────────────
 // Three zoom tiers. lodMidThreshold separates low from mid; lodHighThreshold separates mid from high.
@@ -1831,6 +1889,7 @@ function applyEvent(msg) {
           break;
         }
       }
+      _renderTrPanel();
       break;
     }
     case 'container_unreserved': {
@@ -1845,6 +1904,7 @@ function applyEvent(msg) {
       reservedContainerIds.delete(cid);
       tileCache.clear();
       _markBgDirty();
+      _renderTrPanel();
       break;
     }
     case 'location_reserved': {
@@ -1856,6 +1916,7 @@ function applyEvent(msg) {
       }
       reservedLocationIds.add(lid);
       _markBgDirty();
+      _renderTrPanel();
       break;
     }
     case 'location_unreserved': {
@@ -1867,10 +1928,21 @@ function applyEvent(msg) {
       }
       reservedLocationIds.delete(lid);
       _markBgDirty();
+      _renderTrPanel();
       break;
     }
     case 'reservation_failed':
       break;   // no visual state change
+    case 'transfer_request_added': {
+      transferRequests.set(payload.transfer_request_id, payload);
+      _renderTrPanel();
+      break;
+    }
+    case 'transfer_request_completed': {
+      transferRequests.delete(payload.transfer_request_id);
+      _renderTrPanel();
+      break;
+    }
     case 'sim_status': {
       const running = payload.running;
       btnSimStart.disabled = running;
@@ -1912,6 +1984,12 @@ async function loadSnapshot() {
     // Reservation state is included on each page; accumulate across pages
     for (const id of (data.reserved_container_ids || [])) reservedContainerIds.add(id);
     for (const id of (data.reserved_location_ids  || [])) reservedLocationIds.add(id);
+
+    // Transfer requests (full list on each page — just overwrite)
+    transferRequests.clear();
+    for (const [id, req] of Object.entries(data.transfer_requests || {})) {
+      transferRequests.set(id, req);
+    }
 
     offset += SNAPSHOT_PAGE;
     statusEl.textContent = `Loading… ${locations.size.toLocaleString()} / ${total.toLocaleString()}`;
@@ -2212,6 +2290,82 @@ document.getElementById('btn-clear-loads').addEventListener('click', async () =>
   await loadSnapshot();
 });
 
+// ─── Transfer Requests panel ──────────────────────────────────────────────────
+const trPanel      = document.getElementById('tr-panel');
+const trPanelCount = document.getElementById('tr-panel-count');
+const trTbody      = document.getElementById('tr-tbody');
+const trEmpty      = document.getElementById('tr-empty');
+const trTable      = document.getElementById('tr-table');
+const btnTrPanel   = document.getElementById('btn-tr-panel');
+
+btnTrPanel.addEventListener('click', () => {
+  const visible = trPanel.classList.toggle('visible');
+  btnTrPanel.classList.toggle('active', visible);
+  if (visible) _renderTrPanel();
+});
+
+function _trShortId(id) {
+  if (typeof id === 'string' && id.length > 12) return '…' + id.slice(-8);
+  return id == null ? '—' : String(id);
+}
+
+function _renderTrPanel() {
+  if (!trPanel.classList.contains('visible')) return;
+
+  const entries = [...transferRequests.values()];
+  trPanelCount.textContent = `(${entries.length})`;
+
+  if (entries.length === 0) {
+    trEmpty.style.display = '';
+    trTable.style.display = 'none';
+    return;
+  }
+  trEmpty.style.display = 'none';
+  trTable.style.display = '';
+
+  trTbody.innerHTML = '';
+  for (const req of entries) {
+    const cid       = req.container_id  ? String(req.container_id)  : null;
+    const srcId     = req.source_loc_id ? String(req.source_loc_id) : null;
+    const dstId     = req.dest_loc_id   ? String(req.dest_loc_id)   : null;
+
+    const cReserved = cid   && reservedContainerIds.has(cid);
+    const dReserved = dstId && reservedLocationIds.has(dstId);
+    const ready     = !!cReserved && (!dstId || !!dReserved);
+
+    const tr = document.createElement('tr');
+
+    // Ready dot
+    const tdReady = document.createElement('td');
+    tdReady.style.textAlign = 'center';
+    const dot = document.createElement('span');
+    dot.className = `tr-ready-dot ${ready ? 'tr-ready-yes' : 'tr-ready-no'}`;
+    dot.title = ready ? 'Ready' : 'Not ready';
+    tdReady.appendChild(dot);
+
+    // Container
+    const tdC = document.createElement('td');
+    tdC.className = cid ? (cReserved ? 'tr-reserved' : 'tr-not-reserved') : 'tr-none-val';
+    tdC.textContent = _trShortId(cid);
+    if (cid) tdC.title = cid;
+
+    // From loc (no reservation color — source locs aren't tracked)
+    const tdFrom = document.createElement('td');
+    tdFrom.className = srcId ? 'tr-neutral' : 'tr-none-val';
+    tdFrom.textContent = _trShortId(srcId);
+    if (srcId) tdFrom.title = srcId;
+
+    // To loc
+    const tdTo = document.createElement('td');
+    tdTo.className = dstId ? (dReserved ? 'tr-reserved' : 'tr-not-reserved') : 'tr-none-val';
+    tdTo.textContent = _trShortId(dstId);
+    if (dstId) tdTo.title = dstId;
+
+    tr.append(tdReady, tdC, tdFrom, tdTo);
+    trTbody.appendChild(tr);
+  }
+}
+
 // ─── Clear locations ──────────────────────────────────────────────────────────
 document.getElementById('btn-clear-locs').addEventListener('click', async () => {
   const ok = await _showConfirm(
@@ -2222,6 +2376,7 @@ document.getElementById('btn-clear-locs').addEventListener('click', async () => 
   await fetch('/v1/locations', { method: 'DELETE' });
   locations.clear();
   containers.clear();
+  transferRequests.clear();
   wireframeIndices.clear();
   hoverIndices.clear();
   groupBoxCache.clear();
@@ -2229,6 +2384,7 @@ document.getElementById('btn-clear-locs').addEventListener('click', async () => 
   reservedLocationIds.clear();
   hoveredAisleKey = null;
   hoveredLocId    = null;
+  _renderTrPanel();
   forceRender();
   await loadSnapshot();
 });

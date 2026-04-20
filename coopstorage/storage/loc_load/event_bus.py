@@ -55,7 +55,9 @@ class StorageEventBus:
         pub.subscribe(self._on_container_unreserved,  StorageTopic.CONTAINER_UNRESERVED.value)
         pub.subscribe(self._on_location_reserved,     StorageTopic.LOCATION_RESERVED.value)
         pub.subscribe(self._on_location_unreserved,   StorageTopic.LOCATION_UNRESERVED.value)
-        pub.subscribe(self._on_reservation_failed,    StorageTopic.RESERVATION_FAILED.value)
+        pub.subscribe(self._on_reservation_failed,        StorageTopic.RESERVATION_FAILED.value)
+        pub.subscribe(self._on_transfer_request_added,    StorageTopic.TRANSFER_REQUEST_ADDED.value)
+        pub.subscribe(self._on_transfer_request_completed, StorageTopic.TRANSFER_REQUEST_COMPLETED.value)
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
@@ -160,3 +162,9 @@ class StorageEventBus:
 
     def _on_reservation_failed(self, payload):
         self._emit(StorageEvent('reservation_failed', payload))
+
+    def _on_transfer_request_added(self, payload):
+        self._emit(StorageEvent('transfer_request_added', payload))
+
+    def _on_transfer_request_completed(self, payload):
+        self._emit(StorageEvent('transfer_request_completed', payload))
