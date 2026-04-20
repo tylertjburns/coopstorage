@@ -85,7 +85,7 @@
       position: fixed; display: none;
       background: #161b22; border: 1px solid #30363d; border-radius: 6px;
       padding: 10px 14px; font-size: 11px; pointer-events: none;
-      max-width: 300px; line-height: 1.7; z-index: 10;
+      max-width: 480px; line-height: 1.7; z-index: 10;
     }
     #tooltip strong { color: #e6edf3; }
     #tooltip em { color: #58a6ff; font-style: normal; }
@@ -315,6 +315,18 @@
         <label>Show location IDs</label>
         <input id="viz-show-loc-ids" type="checkbox" />
       </div>
+      <div class="viz-field" style="flex:0 0 auto;">
+        <label>Show zone origins</label>
+        <input id="viz-show-zone-origins" type="checkbox" />
+      </div>
+      <div class="viz-field" style="flex:0 0 auto;">
+        <label>Show compass</label>
+        <input id="viz-show-compass" type="checkbox" checked />
+      </div>
+      <div class="viz-field" style="flex:0 0 auto;">
+        <label>Show grid</label>
+        <input id="viz-show-grid" type="checkbox" checked />
+      </div>
     </div>
 
     <!-- Low zoom tier -->
@@ -540,6 +552,9 @@ const vizConfig = {
   lodMidThreshold:  1.25,  // scale: below → low tier
   lodHighThreshold: 4,     // scale: above → high tier (between the two = mid)
   showLocIds:       false,
+  showZoneOrigins:  false,
+  showCompass:      true,
+  showGrid:         true,
   tiers: {
     low: {
       wireframeLevels:     ['zone', 'aisle'],
@@ -564,6 +579,11 @@ const vizConfig = {
     },
   },
 };
+
+// ─── Zone origin tracking ─────────────────────────────────────────────────────
+// zoneMinBoxes: zoneKey → {minX, minY, minZ} — rebuilt in _rebuildIndices,
+// updated incrementally in _indexLoc.
+const zoneMinBoxes = new Map();
 
 // ─── Reservation state ────────────────────────────────────────────────────────
 const AMBER           = '#e3b341';
@@ -703,6 +723,21 @@ function _buildGroupIndex(level, index) {
 function _rebuildIndices() {
   wireframeIndices.clear();
   hoverIndices.clear();
+  zoneMinBoxes.clear();
+  for (const loc of locations.values()) {
+    const zk = _groupKey(loc, 'zone');
+    if (zk) {
+      const [wx, wy, wz] = loc.coords;
+      if (!zoneMinBoxes.has(zk)) {
+        zoneMinBoxes.set(zk, { minX: wx, minY: wy, minZ: wz });
+      } else {
+        const b = zoneMinBoxes.get(zk);
+        b.minX = Math.min(b.minX, wx);
+        b.minY = Math.min(b.minY, wy);
+        b.minZ = Math.min(b.minZ, wz);
+      }
+    }
+  }
   for (const level of _uniqueLevels(wireframeIndices)) {
     const idx = new Map();
     _buildGroupIndex(level, idx);
@@ -734,6 +769,19 @@ function _indexLoc(loc) {
     if (!idx.has(key)) idx.set(key, new Set());
     idx.get(key).add(loc.id);
     groupBoxCache.delete(key);
+  }
+  // Incrementally update zone origin
+  const zk = _groupKey(loc, 'zone');
+  if (zk) {
+    const [wx, wy, wz] = loc.coords;
+    if (!zoneMinBoxes.has(zk)) {
+      zoneMinBoxes.set(zk, { minX: wx, minY: wy, minZ: wz });
+    } else {
+      const b = zoneMinBoxes.get(zk);
+      b.minX = Math.min(b.minX, wx);
+      b.minY = Math.min(b.minY, wy);
+      b.minZ = Math.min(b.minZ, wz);
+    }
   }
 }
 
@@ -812,20 +860,31 @@ function _drawGroupWireframe(key, index, level) {
     ctx.strokeRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
   }
 
-  // Label: show the value of the configured level
+}
+
+// Draw the group label for a single key — called separately so labels render on top of everything.
+function _drawGroupLabel(key, index, level) {
+  const box = _groupBox(key, index);
+  if (!box) return;
+  const ids = index.get(key);
   const [lx, ly] = isIso
     ? project((box.minX + box.maxX) / 2, box.minY, box.maxZ)
     : project((box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2, 0);
   const sample = ids ? locations.get([...ids][0]) : null;
-  if (sample && sample.tree_path) {
-    const tp    = sample.tree_path;
-    const val = tp[level] !== undefined ? tp[level] : key;
-    ctx.fillStyle    = stroke;
-    ctx.font         = '11px monospace';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(`${level[0].toUpperCase()}${val}`, lx, ly);
-  }
+  if (!sample || !sample.tree_path) return;
+  const tp  = sample.tree_path;
+  const val = tp[level] !== undefined ? tp[level] : key;
+  ctx.fillStyle    = '#c9d1d9';
+  ctx.font         = 'bold 11px monospace';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'bottom';
+  // Subtle dark backing so text is readable over any wireframe colour
+  const text = `${level[0].toUpperCase()}${val}`;
+  const tw = ctx.measureText(text).width;
+  ctx.fillStyle = 'rgba(13,17,23,0.72)';
+  ctx.fillRect(lx - tw / 2 - 2, ly - 12, tw + 4, 12);
+  ctx.fillStyle = '#c9d1d9';
+  ctx.fillText(text, lx, ly);
 }
 
 // ─── UOM icon system ──────────────────────────────────────────────────────────
@@ -983,6 +1042,232 @@ function _onZoom() {
   }, 50);
 }
 
+// ─── Compass HUD ──────────────────────────────────────────────────────────────
+function _arrowHead(x, y, dx, dy, size) {
+  const angle = Math.atan2(dy, dx);
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x - size * Math.cos(angle - Math.PI / 6), y - size * Math.sin(angle - Math.PI / 6));
+  ctx.lineTo(x - size * Math.cos(angle + Math.PI / 6), y - size * Math.sin(angle + Math.PI / 6));
+  ctx.closePath();
+  ctx.fill();
+}
+
+function _drawCompass() {
+  if (!vizConfig.showCompass) return;
+
+  // Anchor at the world origin — hide when off-screen
+  const [ox, oy] = project(0, 0, 0);
+  if (ox < -100 || ox > W + 100 || oy < -100 || oy > H + 100) return;
+
+  // Axis unit vectors in screen space (normalised, scale-independent)
+  let xDirX, xDirY, yDirX, yDirY;
+  if (isIso) {
+    xDirX =  0.866; xDirY =  0.5;   // world +X → screen ↘
+    yDirX = -0.866; yDirY =  0.5;   // world +Y → screen ↙
+  } else {
+    xDirX = 1; xDirY = 0;           // world +X → screen →
+    yDirX = 0; yDirY = 1;           // world +Y → screen ↓
+  }
+
+  const armLen = 35;
+
+  ctx.save();
+  ctx.translate(ox, oy);
+
+  // X axis — red
+  ctx.strokeStyle = '#f85149';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(xDirX * armLen, xDirY * armLen);
+  ctx.stroke();
+  ctx.fillStyle = '#f85149';
+  _arrowHead(xDirX * armLen, xDirY * armLen, xDirX, xDirY, 6);
+  ctx.font = 'bold 10px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('X', xDirX * (armLen + 11), xDirY * (armLen + 11));
+
+  // Y axis — green
+  ctx.strokeStyle = '#3fb950';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(yDirX * armLen, yDirY * armLen);
+  ctx.stroke();
+  ctx.fillStyle = '#3fb950';
+  _arrowHead(yDirX * armLen, yDirY * armLen, yDirX, yDirY, 6);
+  ctx.fillText('Y', yDirX * (armLen + 11), yDirY * (armLen + 11));
+
+  ctx.restore();
+}
+
+// ─── Zone origin dots ─────────────────────────────────────────────────────────
+function _drawZoneOrigins() {
+  if (!vizConfig.showZoneOrigins || zoneMinBoxes.size === 0) return;
+  ctx.save();
+  for (const [, box] of zoneMinBoxes) {
+    const [sx, sy] = project(box.minX, box.minY, 0);
+    if (sx < -20 || sx > W + 20 || sy < -20 || sy > H + 20) continue;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#58a6ff';
+    ctx.fill();
+    ctx.strokeStyle = '#0d1117';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function _hitTestZoneOrigin(mx, my) {
+  if (!vizConfig.showZoneOrigins || zoneMinBoxes.size === 0) return null;
+  for (const [key, box] of zoneMinBoxes) {
+    const [sx, sy] = project(box.minX, box.minY, 0);
+    const d2 = (mx - sx) ** 2 + (my - sy) ** 2;
+    if (d2 <= 64) return { key, wx: box.minX, wy: box.minY, wz: box.minZ };
+  }
+  return null;
+}
+
+// ─── Background grid ──────────────────────────────────────────────────────────
+function _formatGridVal(v) {
+  const r = Math.round(v * 1000) / 1000;
+  return r === Math.floor(r) ? String(Math.floor(r)) : r.toFixed(1);
+}
+
+function _niceGridSpacing() {
+  // Pick a world-unit interval so grid lines stay ~80 px apart on screen.
+  const raw = 80 / scale;
+  if (raw <= 0) return 1;
+  const exp  = Math.floor(Math.log10(raw));
+  const base = Math.pow(10, exp);
+  for (const m of [1, 2, 5, 10]) {
+    if (m * base >= raw) return m * base;
+  }
+  return 10 * base;
+}
+
+function _screenToWorld(sx, sy) {
+  const rx = (sx - panX) / scale;
+  const ry = (sy - panY) / scale;
+  if (isIso) {
+    // Invert: rx=(wx-wy)*0.866, ry=(wx+wy)*0.5  at z=0
+    return [(rx / 0.866 + ry * 2) / 2, (ry * 2 - rx / 0.866) / 2];
+  }
+  return [rx, ry];
+}
+
+function _drawGrid() {
+  if (!vizConfig.showGrid) return;
+
+  const spacing = _niceGridSpacing();
+
+  // Compute visible world bounds from the four screen corners
+  const worldCorners = [[0,0],[W,0],[0,H],[W,H]].map(([sx,sy]) => _screenToWorld(sx, sy));
+  const wxs = worldCorners.map(c => c[0]);
+  const wys = worldCorners.map(c => c[1]);
+  const minWX = Math.min(...wxs), maxWX = Math.max(...wxs);
+  const minWY = Math.min(...wys), maxWY = Math.max(...wys);
+
+  const MAX_LINES = 80;
+  const startX = Math.floor(minWX / spacing) * spacing;
+  const startY = Math.floor(minWY / spacing) * spacing;
+  const nX = Math.min(Math.ceil((maxWX - minWX) / spacing) + 2, MAX_LINES);
+  const nY = Math.min(Math.ceil((maxWY - minWY) / spacing) + 2, MAX_LINES);
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 1;
+
+  // Lines of constant wx (run in the Y direction)
+  for (let i = 0; i < nX; i++) {
+    const wx = startX + i * spacing;
+    const [sx0, sy0] = project(wx, minWY - spacing, 0);
+    const [sx1, sy1] = project(wx, maxWY + spacing, 0);
+    ctx.beginPath(); ctx.moveTo(sx0, sy0); ctx.lineTo(sx1, sy1); ctx.stroke();
+  }
+
+  // Lines of constant wy (run in the X direction)
+  for (let i = 0; i < nY; i++) {
+    const wy = startY + i * spacing;
+    const [sx0, sy0] = project(minWX - spacing, wy, 0);
+    const [sx1, sy1] = project(maxWX + spacing, wy, 0);
+    ctx.beginPath(); ctx.moveTo(sx0, sy0); ctx.lineTo(sx1, sy1); ctx.stroke();
+  }
+
+  // ── Labels: every other line, rotated to lie along the line ─────────────
+  // iso wx lines run in screen direction (-0.866, 0.5) → readable text at -π/6
+  // iso wy lines run in screen direction ( 0.866, 0.5) → readable text at +π/6
+  // Labels are pinned near the viewport edge, sitting just above the line.
+
+  if (isIso) {
+    // wx-constant lines — label near bottom edge, rotated -30°
+    for (let i = 0; i < nX; i += 2) {
+      const wx = startX + i * spacing;
+      // Solve for wy at sy = H-22 so the label sits in the bottom strip
+      const wy = 2 * (H - 22 - panY) / scale - wx;
+      const lx = (wx - wy) * 0.866 * scale + panX;
+      const ly = H - 22;
+      if (lx < 30 || lx > W - 30) continue;
+      ctx.save();
+      ctx.translate(lx, ly);
+      ctx.rotate(-Math.PI / 6);
+      ctx.font = '10px monospace';
+      ctx.fillStyle = 'rgba(139,148,158,0.75)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(_formatGridVal(wx), 0, 0);
+      ctx.restore();
+    }
+
+    // wy-constant lines — label near left edge, rotated +30°
+    for (let i = 0; i < nY; i += 2) {
+      const wy = startY + i * spacing;
+      // Solve for wx at sx = 22
+      const wx = (22 - panX) / (0.866 * scale) + wy;
+      const lx = 22;
+      const ly = (wx + wy) * 0.5 * scale + panY;
+      if (ly < 50 || ly > H - 20) continue;
+      ctx.save();
+      ctx.translate(lx, ly);
+      ctx.rotate(Math.PI / 6);
+      ctx.font = '10px monospace';
+      ctx.fillStyle = 'rgba(139,148,158,0.75)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(_formatGridVal(wy), 0, 0);
+      ctx.restore();
+    }
+  } else {
+    // 2D — no rotation needed
+    ctx.font = '10px monospace';
+    ctx.fillStyle = 'rgba(139,148,158,0.75)';
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    for (let i = 0; i < nX; i += 2) {
+      const wx = startX + i * spacing;
+      const lx = wx * scale + panX;
+      const ly = H - 4;
+      if (lx < 30 || lx > W - 30) continue;
+      ctx.fillText(_formatGridVal(wx), lx, ly);
+    }
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i < nY; i += 2) {
+      const wy = startY + i * spacing;
+      const ly = wy * scale + panY;
+      if (ly < 50 || ly > H - 20) continue;
+      ctx.fillText(_formatGridVal(wy), 6, ly);
+    }
+  }
+
+  ctx.restore();
+}
+
 // ─── Background layer cache ───────────────────────────────────────────────────
 // Wireframes + all-locs (locsDisplay) painted once into an OffscreenCanvas.
 // Blitted in one drawImage call per frame; only rebuilt when viewport or data changes.
@@ -1009,6 +1294,9 @@ function _paintBackground(tc) {
   ctx = _bgCanvas.getContext('2d');   // eslint-disable-line no-global-assign
 
   ctx.clearRect(0, 0, W, H);
+
+  // Grid (drawn first — below wireframes and locations)
+  _drawGrid();
 
   // Wireframes
   for (const level of tc.wireframeLevels) {
@@ -1235,6 +1523,7 @@ function render() {
       if (firstIdx) for (const [key] of firstIdx) _drawGroupWireframe(key, firstIdx, tc.wireframeLevels[0]);
     }
     _drawAnimations();
+    _drawCompass();
     return;
   }
 
@@ -1288,6 +1577,25 @@ function render() {
     }
   }
   _drawAnimations();
+
+  // ── Labels: hover group + hover sub-wireframes, always on top ────────────
+  if (hoveredAisleKey !== null && hoverIdx) {
+    _drawGroupLabel(hoveredAisleKey, hoverIdx, tc.hoverLevel);
+    if (tc.hoverWireframeLevel) {
+      const wfIdx2 = wireframeIndices.get(tc.hoverWireframeLevel);
+      const hLocs  = hoverIdx.get(hoveredAisleKey);
+      if (wfIdx2 && hLocs) {
+        for (const [k, kIds] of wfIdx2) {
+          for (const id of kIds) {
+            if (hLocs.has(id)) { _drawGroupLabel(k, wfIdx2, tc.hoverWireframeLevel); break; }
+          }
+        }
+      }
+    }
+  }
+
+  _drawZoneOrigins();
+  _drawCompass();
 }
 
 function drawRect(loc, sx, sy, occupied) {
@@ -1674,6 +1982,21 @@ function _commitHoverKey(key) {
 
 canvas.addEventListener('mousemove', e => {
   if (dragging) { tooltipEl.style.display = 'none'; return; }
+
+  // Zone origin dot hover takes priority over location hit test
+  const zoneOriginHit = _hitTestZoneOrigin(e.clientX, e.clientY);
+  if (zoneOriginHit) {
+    tooltipEl.innerHTML = `<strong>Zone origin</strong> <em>${zoneOriginHit.key}</em><br>` +
+      `<em>coords</em> [${zoneOriginHit.wx.toFixed(2)}, ${zoneOriginHit.wy.toFixed(2)}, ${zoneOriginHit.wz.toFixed(2)}]`;
+    tooltipEl.style.display = 'block';
+    tooltipEl.style.left = (e.clientX + 14) + 'px';
+    tooltipEl.style.top  = (e.clientY + 14) + 'px';
+    if (hoveredAisleKey !== null || hoveredLocId !== null) {
+      hoveredAisleKey = null; hoveredLocId = null; forceRender();
+    }
+    return;
+  }
+
   const hit = hitTest(e.clientX, e.clientY);
   if (!hit) {
     tooltipEl.style.display = 'none';
@@ -1707,7 +2030,7 @@ canvas.addEventListener('mousemove', e => {
       const label = c.contents.length > 0
         ? c.contents.map(cc => `${cc.qty}×${cc.uom} ${cc.resource}`).join(', ')
         : '(empty)';
-      html += `&nbsp;${String(cid).slice(0, 10)}… ${label}<br>`;
+      html += `&nbsp;${cid} ${label}<br>`;
     }
   }
 
@@ -2238,6 +2561,25 @@ for (const tier of ['low', 'mid', 'high']) {
 document.getElementById('viz-show-loc-ids').addEventListener('change', e => {
   vizConfig.showLocIds = e.target.checked;
   tileCache.clear();
+  forceRender();
+});
+
+// Show zone origins
+document.getElementById('viz-show-zone-origins').addEventListener('change', e => {
+  vizConfig.showZoneOrigins = e.target.checked;
+  forceRender();
+});
+
+// Show compass
+document.getElementById('viz-show-compass').addEventListener('change', e => {
+  vizConfig.showCompass = e.target.checked;
+  forceRender();
+});
+
+// Show grid
+document.getElementById('viz-show-grid').addEventListener('change', e => {
+  vizConfig.showGrid = e.target.checked;
+  _markBgDirty();
   forceRender();
 });
 
