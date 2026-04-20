@@ -400,6 +400,12 @@ class Storage:
                 request = request.try_acquire_reservations(self._reservation_provider)
                 self._data_store.TransferRequestsData.add([request])
                 self._data_store.ContainersData.add_or_update(containers=[request.container])
+                pub.sendMessage(StorageTopic.TRANSFER_REQUEST_ADDED.value, payload={
+                    'transfer_request_id': str(request.get_id()),
+                    'container_id':        str(request.container.id),
+                    'source_loc_id':       str(request.source_loc.Id) if request.source_loc else None,
+                    'dest_loc_id':         str(request.dest_loc.Id)   if request.dest_loc   else None,
+                })
 
                 if request.source_loc is not None:
                     unblocking.add(str(request.container.id))
@@ -415,6 +421,9 @@ class Storage:
                 if request.Ready:
                     self._handle_transfer_request(request)
                     self._data_store.TransferRequestsData.remove(requests=[request])
+                    pub.sendMessage(StorageTopic.TRANSFER_REQUEST_COMPLETED.value, payload={
+                        'transfer_request_id': str(request.get_id()),
+                    })
                     dest_deletes = request.dest_loc is not None and request.dest_loc.Meta.delete_on_receive
                     if request.criteria.delete_container_on_transfer or dest_deletes:
                         self._data_store.ContainersData.remove(containers=[request.container])

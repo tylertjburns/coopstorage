@@ -18,6 +18,8 @@ Covers:
 import threading
 import unittest
 
+from pubsub import pub
+from coopstorage.enums import StorageTopic
 import coopstorage.storage.loc_load.channel_processors as cps
 import coopstorage.storage.loc_load.dcs as dcs
 from coopstorage.storage.loc_load.location import Location
@@ -528,6 +530,65 @@ class TestRemoveContentAtLocation(unittest.TestCase):
         s.register_locs([_loc('EMPTY', capacity=1)])
         with self.assertRaises(UnexpectedContainerCountException):
             s.remove_content_from_container_at_location('EMPTY', _content(qty=1.0))
+
+
+# ── Transfer request SSE events ───────────────────────────────────────────────
+
+class TestTransferRequestEvents(unittest.TestCase):
+
+    def setUp(self):
+        self._added_payloads     = []
+        self._completed_payloads = []
+
+        def _on_added(payload):
+            self._added_payloads.append(payload)
+
+        def _on_completed(payload):
+            self._completed_payloads.append(payload)
+
+        self._on_added     = _on_added
+        self._on_completed = _on_completed
+        pub.subscribe(self._on_added,     StorageTopic.TRANSFER_REQUEST_ADDED.value)
+        pub.subscribe(self._on_completed, StorageTopic.TRANSFER_REQUEST_COMPLETED.value)
+
+    def tearDown(self):
+        pub.unsubscribe(self._on_added,     StorageTopic.TRANSFER_REQUEST_ADDED.value)
+        pub.unsubscribe(self._on_completed, StorageTopic.TRANSFER_REQUEST_COMPLETED.value)
+
+    def test_added_event_fires_with_correct_payload(self):
+        """transfer_request_added fires with container_id, source_loc_id=None, dest_loc_id."""
+        s = _storage_with_locs('DEST')
+        s.handle_transfer_requests([
+            TransferRequestCriteria(
+                new_container=_load('L1'),
+                dest_loc_query_args=LocationQualifier(
+                    id_pattern=PatternMatchQualifier(regex='^DEST$')
+                ),
+            )
+        ])
+
+        self.assertEqual(len(self._added_payloads), 1)
+        p = self._added_payloads[0]
+        self.assertIn('transfer_request_id', p)
+        self.assertEqual(str(p['container_id']), 'L1')
+        self.assertIsNone(p['source_loc_id'])
+        self.assertEqual(str(p['dest_loc_id']), 'DEST')
+
+    def test_completed_event_fires_with_matching_id(self):
+        """transfer_request_completed fires and its ID matches the added event."""
+        s = _storage_with_locs('DEST')
+        s.handle_transfer_requests([
+            TransferRequestCriteria(
+                new_container=_load('L1'),
+                dest_loc_query_args=LocationQualifier(at_least_capacity=1),
+            )
+        ])
+
+        self.assertEqual(len(self._completed_payloads), 1)
+        self.assertEqual(
+            self._completed_payloads[0]['transfer_request_id'],
+            self._added_payloads[0]['transfer_request_id'],
+        )
 
 
 if __name__ == "__main__":

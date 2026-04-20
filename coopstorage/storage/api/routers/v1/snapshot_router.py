@@ -80,12 +80,24 @@ def snapshot_router_factory(storage: Storage) -> APIRouter:
                 entry['tree_path'] = None
             serialized[str(loc_id)] = entry
 
+        pending_trs = storage._data_store.TransferRequestsData.get()
+        transfer_requests = {
+            str(req_id): {
+                'transfer_request_id': str(req.get_id()),
+                'container_id':        str(req.container.id),
+                'source_loc_id':       str(req.source_loc.Id) if req.source_loc else None,
+                'dest_loc_id':         str(req.dest_loc.Id)   if req.dest_loc   else None,
+            }
+            for req_id, req in pending_trs.items()
+        }
+
         return {
             'total': total,
             'offset': offset,
             'locations': serialized,
             'reserved_container_ids': list(storage.get_reserved_container_ids()),
             'reserved_location_ids':  list(storage.get_reserved_location_ids()),
+            'transfer_requests':      transfer_requests,
         }
 
     return router
