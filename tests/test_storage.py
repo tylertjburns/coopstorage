@@ -597,14 +597,21 @@ class _TrackingReservationProvider:
     """In-memory reservation provider for testing — tracks state explicitly."""
 
     def __init__(self):
-        self._reserved: set = set()
+        self._reserved: dict[str, str] = {}  # resource -> release token
 
-    def reserve(self, resource: str, requester: str, resource_type: str = None):
-        self._reserved.add(str(resource))
-        return resource
+    def reserve(self, resource: str, requester: str, resource_type: str = None) -> str:
+        token = f"token-{resource}"
+        self._reserved[str(resource)] = token
+        return token
 
-    def unreserve(self, resource: str, requester: str) -> bool:
-        self._reserved.discard(str(resource))
+    def unreserve(self, resource: str, requester: str, token: str) -> bool:
+        expected = self._reserved.get(str(resource))
+        if expected is None or expected != token:
+            raise ValueError(
+                f"unreserve called with invalid token for resource={resource}: "
+                f"expected={expected!r} got={token!r}"
+            )
+        del self._reserved[str(resource)]
         return True
 
     def is_reserved(self, resource: str) -> bool:
@@ -643,8 +650,8 @@ class TestStorageReservationQueries(unittest.TestCase):
 
     def test_get_reserved_location_ids_updates_after_unreserve(self):
         s, provider = _storage_with_tracking_provider('A', 'B')
-        provider.reserve('A', 'req')
-        provider.unreserve('A', 'req')
+        token = provider.reserve('A', 'req')
+        provider.unreserve('A', 'req', token)
         self.assertEqual(s.get_reserved_location_ids(), set())
 
     # ── get_reserved_container_ids ────────────────────────────────────────────

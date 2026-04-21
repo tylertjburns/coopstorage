@@ -7,7 +7,7 @@ import requests
 
 class ReservationProvider(Protocol):
     def reserve(self, resource: str, requester: str, resource_type: str = None) -> Optional[str]: ...
-    def unreserve(self, resource: str, requester: str) -> bool: ...
+    def unreserve(self, resource: str, requester: str, token: str) -> bool: ...
     def is_reserved(self, resource: str) -> bool: ...
     def get_reserved_ids(self, resource_ids: Iterable[str]) -> set: ...
 
@@ -18,7 +18,7 @@ class PassthroughReservationProvider:
     def reserve(self, resource: str, requester: str, resource_type: str = None) -> Optional[str]:
         return resource
 
-    def unreserve(self, resource: str, requester: str) -> bool:
+    def unreserve(self, resource: str, requester: str, token: str) -> bool:
         return True
 
     def is_reserved(self, resource: str) -> bool:
@@ -39,19 +39,29 @@ class ApiKeyReservationProvider:
         return {'X-Api-Key': self._api_key}
 
     def _post(self, path: str, body) -> list:
-        resp = requests.post(f"{self._base_url}{path}", json=body, headers=self._headers())
-        resp.raise_for_status()
-        return resp.json()
+        try:
+            resp = requests.post(f"{self._base_url}{path}", json=body, headers=self._headers())
+            resp.raise_for_status()
+            return resp.json()
+        except requests.exceptions.ConnectionError:
+            logging.warning(f"Reservation service unreachable at {self._base_url}{path} — skipping.")
+            return []
 
     def reserve(self, resource: str, requester: str, resource_type: str = None) -> Optional[str]:
         results = self._post('/api/v1/Reservation/reserve', [{'requester': requester, 'resource': resource, 'resourceType': resource_type or "storage" }])
         if results and results[0].get('status') == 'SUCCESS':
-            return resource
+            token = results[0].get('releaseToken')
+            logging.debug(f"Reserve OK: resource={resource} token={token} response={results[0]}")
+            return token
         return None
 
-    def unreserve(self, resource: str, requester: str) -> bool:
-        results = self._post('/api/v1/Reservation/unreserve', [{'requester': requester, 'resource': resource}])
-        return bool(results and results[0].get('status') == 'SUCCESS')
+    def unreserve(self, resource: str, requester: str, token: str) -> bool:
+        results = self._post('/api/v1/Reservation/unreserve', [{'requester': requester, 'resource': resource, 'releaseToken': token}])
+        success = bool(results and results[0].get('status') == 'SUCCESS')
+        if not success:
+            reason = results[0].get('explanation') if results else 'no response'
+            logging.error(f"Unreserve FAILED: resource={resource} requester={requester} token={token} reason={reason} response={results}")
+        return success
 
     def _get(self, path: str):
         resp = requests.get(f"{self._base_url}{path}", headers=self._headers())
@@ -85,11 +95,15 @@ class JwtExchangeReservationProvider:
         self._lock = threading.Lock()
 
     def _exchange_token(self):
-        resp = requests.post(
-            f"{self._base_url}/auth/token",
-            headers={'X-Api-Key': self._api_key},
-        )
-        resp.raise_for_status()
+        try:
+            resp = requests.post(
+                f"{self._base_url}/auth/token",
+                headers={'X-Api-Key': self._api_key},
+            )
+            resp.raise_for_status()
+        except requests.exceptions.ConnectionError:
+            logging.warning(f"Reservation service unreachable at {self._base_url}/auth/token — will retry on next request.")
+            raise
         data = resp.json()
         self._token = data['accessToken']
         expires_in = data['expiresIn']
@@ -106,7 +120,10 @@ class JwtExchangeReservationProvider:
             self._token = None
 
     def _post(self, path: str, body, *, _re_auth: bool = True, attempts: int = 3) -> list:
-        headers = {'Authorization': f'Bearer {self._get_token()}'}
+        try:
+            headers = {'Authorization': f'Bearer {self._get_token()}'}
+        except requests.exceptions.ConnectionError:
+            return []
         logging.debug(f"Sending request to {path}")
         resp = requests.post(f"{self._base_url}{path}", json=body, headers=headers)
         if resp.status_code == 401 and _re_auth:
@@ -131,16 +148,25 @@ class JwtExchangeReservationProvider:
     def reserve(self, resource: str, requester: str, resource_type: str = None) -> Optional[str]:
         results = self._post('/api/v1/Reservation/reserve', [{'requester': requester, 'resource': resource, 'resourceType': resource_type or "storage" }])
         if results and results[0].get('status') == 'SUCCESS':
-            return resource
+            token = results[0].get('releaseToken')
+            logging.debug(f"Reserve OK: resource={resource} token={token} response={results[0]}")
+            return token
         logging.warning(f"Reserve non-SUCCESS: resource={resource} requester={requester} response={results}")
         return None
 
-    def unreserve(self, resource: str, requester: str) -> bool:
-        results = self._post('/api/v1/Reservation/unreserve', [{'requester': requester, 'resource': resource}])
-        return bool(results and results[0].get('status') == 'SUCCESS')
+    def unreserve(self, resource: str, requester: str, token: str) -> bool:
+        results = self._post('/api/v1/Reservation/unreserve', [{'requester': requester, 'resource': resource, 'releaseToken': token}])
+        success = bool(results and results[0].get('status') == 'SUCCESS')
+        if not success:
+            reason = results[0].get('explanation') if results else 'no response'
+            logging.error(f"Unreserve FAILED: resource={resource} requester={requester} token={token} reason={reason} response={results}")
+        return success
 
     def _get(self, path: str, *, _re_auth: bool = True):
-        headers = {'Authorization': f'Bearer {self._get_token()}'}
+        try:
+            headers = {'Authorization': f'Bearer {self._get_token()}'}
+        except requests.exceptions.ConnectionError:
+            return {}
         resp = requests.get(f"{self._base_url}{path}", headers=headers)
         if resp.status_code == 401 and _re_auth:
             self._invalidate_token()
