@@ -59,13 +59,13 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
     def release_reservations(self, reservation_provider: ReservationProvider) -> None:
         requester = str(self.get_id())
         if self.container_reservation_token is not None:
-            reservation_provider.unreserve(self.container_reservation_token, requester)
+            reservation_provider.unreserve(str(self.container.id), requester, token=self.container_reservation_token)
             pub.sendMessage(StorageTopic.CONTAINER_UNRESERVED.value, payload={
                 'container_id': str(self.container.id),
                 'transfer_request_id': requester,
             })
         if self.destination_reservation_token is not None:
-            reservation_provider.unreserve(self.destination_reservation_token, requester)
+            reservation_provider.unreserve(str(self.dest_loc.Id), requester, token=self.destination_reservation_token)
             pub.sendMessage(StorageTopic.LOCATION_UNRESERVED.value, payload={
                 'location_id': str(self.dest_loc.Id),
                 'transfer_request_id': requester,
