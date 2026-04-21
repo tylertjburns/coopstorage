@@ -591,5 +591,169 @@ class TestTransferRequestEvents(unittest.TestCase):
         )
 
 
+# ── Reservation queries ───────────────────────────────────────────────────────
+
+class _TrackingReservationProvider:
+    """In-memory reservation provider for testing — tracks state explicitly."""
+
+    def __init__(self):
+        self._reserved: set = set()
+
+    def reserve(self, resource: str, requester: str, resource_type: str = None):
+        self._reserved.add(str(resource))
+        return resource
+
+    def unreserve(self, resource: str, requester: str) -> bool:
+        self._reserved.discard(str(resource))
+        return True
+
+    def is_reserved(self, resource: str) -> bool:
+        return str(resource) in self._reserved
+
+    def get_reserved_ids(self, resource_ids) -> set:
+        return {r for r in resource_ids if r in self._reserved}
+
+
+def _storage_with_tracking_provider(*loc_ids, capacity=3):
+    provider = _TrackingReservationProvider()
+    s = Storage(reservation_provider=provider)
+    s.register_locs([_loc(i, capacity) for i in loc_ids])
+    return s, provider
+
+
+class TestStorageReservationQueries(unittest.TestCase):
+
+    # ── get_reserved_location_ids ─────────────────────────────────────────────
+
+    def test_get_reserved_location_ids_empty_when_nothing_reserved(self):
+        s, _ = _storage_with_tracking_provider('A', 'B', 'C')
+        self.assertEqual(s.get_reserved_location_ids(), set())
+
+    def test_get_reserved_location_ids_includes_reserved_loc(self):
+        s, provider = _storage_with_tracking_provider('A', 'B', 'C')
+        provider.reserve('A', 'req')
+        self.assertIn('A', s.get_reserved_location_ids())
+
+    def test_get_reserved_location_ids_excludes_unreserved_locs(self):
+        s, provider = _storage_with_tracking_provider('A', 'B', 'C')
+        provider.reserve('A', 'req')
+        reserved = s.get_reserved_location_ids()
+        self.assertNotIn('B', reserved)
+        self.assertNotIn('C', reserved)
+
+    def test_get_reserved_location_ids_updates_after_unreserve(self):
+        s, provider = _storage_with_tracking_provider('A', 'B')
+        provider.reserve('A', 'req')
+        provider.unreserve('A', 'req')
+        self.assertEqual(s.get_reserved_location_ids(), set())
+
+    # ── get_reserved_container_ids ────────────────────────────────────────────
+
+    def test_get_reserved_container_ids_empty_when_nothing_reserved(self):
+        s, _ = _storage_with_tracking_provider('A')
+        s.register_containers([_load('C1'), _load('C2')])
+        self.assertEqual(s.get_reserved_container_ids(), set())
+
+    def test_get_reserved_container_ids_includes_reserved_container(self):
+        s, provider = _storage_with_tracking_provider('A')
+        s.register_containers([_load('C1'), _load('C2')])
+        provider.reserve('C1', 'req')
+        self.assertIn('C1', s.get_reserved_container_ids())
+
+    def test_get_reserved_container_ids_excludes_unreserved_containers(self):
+        s, provider = _storage_with_tracking_provider('A')
+        s.register_containers([_load('C1'), _load('C2')])
+        provider.reserve('C1', 'req')
+        self.assertNotIn('C2', s.get_reserved_container_ids())
+
+    # ── _is_location_reserved ─────────────────────────────────────────────────
+
+    def test_is_location_reserved_true_when_reserved(self):
+        s, provider = _storage_with_tracking_provider('A')
+        provider.reserve('A', 'req')
+        self.assertTrue(s._is_location_reserved('A'))
+
+    def test_is_location_reserved_false_when_not_reserved(self):
+        s, _ = _storage_with_tracking_provider('A')
+        self.assertFalse(s._is_location_reserved('A'))
+
+    # ── _is_container_reserved ────────────────────────────────────────────────
+
+    def test_is_container_reserved_true_when_reserved(self):
+        s, provider = _storage_with_tracking_provider('A')
+        s.register_containers([_load('C1')])
+        provider.reserve('C1', 'req')
+        self.assertTrue(s._is_container_reserved('C1'))
+
+    def test_is_container_reserved_false_when_not_reserved(self):
+        s, _ = _storage_with_tracking_provider('A')
+        s.register_containers([_load('C1')])
+        self.assertFalse(s._is_container_reserved('C1'))
+
+    # ── filter with reserved qualifier ────────────────────────────────────────
+
+    def test_filter_reserved_true_returns_only_reserved_locs(self):
+        s, provider = _storage_with_tracking_provider('A', 'B', 'C')
+        provider.reserve('A', 'req')
+        result = s.filter(filter=LocationQualifier(reserved=True))
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].Id, 'A')
+
+    def test_filter_reserved_false_excludes_reserved_locs(self):
+        s, provider = _storage_with_tracking_provider('A', 'B', 'C')
+        provider.reserve('A', 'req')
+        result = s.filter(filter=LocationQualifier(reserved=False))
+        ids = {loc.Id for loc in result}
+        self.assertNotIn('A', ids)
+        self.assertIn('B', ids)
+        self.assertIn('C', ids)
+
+    # ── get_locs with reserved qualifier ─────────────────────────────────────
+
+    def test_get_locs_reserved_true_returns_reserved(self):
+        s, provider = _storage_with_tracking_provider('A', 'B')
+        provider.reserve('B', 'req')
+        result = s.get_locs(criteria=LocationQualifier(reserved=True))
+        self.assertEqual(set(result.keys()), {'B'})
+
+    def test_get_locs_reserved_false_excludes_reserved(self):
+        s, provider = _storage_with_tracking_provider('A', 'B')
+        provider.reserve('B', 'req')
+        result = s.get_locs(criteria=LocationQualifier(reserved=False))
+        self.assertIn('A', result)
+        self.assertNotIn('B', result)
+
+    # ── get_containers with reserved qualifier ────────────────────────────────
+
+    def test_get_containers_reserved_true_returns_reserved(self):
+        s, provider = _storage_with_tracking_provider('A')
+        s.register_containers([_load('C1'), _load('C2')])
+        provider.reserve('C2', 'req')
+        result = s.get_containers(criteria=ContainerQualifier(reserved=True))
+        self.assertEqual(set(result.keys()), {'C2'})
+
+    def test_get_containers_reserved_false_excludes_reserved(self):
+        s, provider = _storage_with_tracking_provider('A')
+        s.register_containers([_load('C1'), _load('C2')])
+        provider.reserve('C2', 'req')
+        result = s.get_containers(criteria=ContainerQualifier(reserved=False))
+        self.assertIn('C1', result)
+        self.assertNotIn('C2', result)
+
+    # ── select_location with reserved qualifier ───────────────────────────────
+
+    def test_select_location_reserved_false_skips_reserved_loc(self):
+        s, provider = _storage_with_tracking_provider('A', 'B')
+        provider.reserve('A', 'req')
+        loc = s.select_location(filter=LocationQualifier(reserved=False))
+        self.assertEqual(loc.Id, 'B')
+
+    def test_select_location_reserved_true_returns_reserved_loc(self):
+        s, provider = _storage_with_tracking_provider('A', 'B')
+        provider.reserve('A', 'req')
+        loc = s.select_location(filter=LocationQualifier(reserved=True))
+        self.assertEqual(loc.Id, 'A')
+
+
 if __name__ == "__main__":
     unittest.main()

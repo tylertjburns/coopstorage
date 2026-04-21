@@ -1,6 +1,6 @@
 import threading
 import time
-from typing import Optional, Protocol
+from typing import Iterable, Optional, Protocol
 import logging
 import requests
 
@@ -8,6 +8,8 @@ import requests
 class ReservationProvider(Protocol):
     def reserve(self, resource: str, requester: str, resource_type: str = None) -> Optional[str]: ...
     def unreserve(self, resource: str, requester: str) -> bool: ...
+    def is_reserved(self, resource: str) -> bool: ...
+    def get_reserved_ids(self, resource_ids: Iterable[str]) -> set: ...
 
 
 class PassthroughReservationProvider:
@@ -18,6 +20,12 @@ class PassthroughReservationProvider:
 
     def unreserve(self, resource: str, requester: str) -> bool:
         return True
+
+    def is_reserved(self, resource: str) -> bool:
+        return False
+
+    def get_reserved_ids(self, resource_ids: Iterable[str]) -> set:
+        return set()
 
 
 class ApiKeyReservationProvider:
@@ -44,6 +52,19 @@ class ApiKeyReservationProvider:
     def unreserve(self, resource: str, requester: str) -> bool:
         results = self._post('/api/v1/Reservation/unreserve', [{'requester': requester, 'resource': resource}])
         return bool(results and results[0].get('status') == 'SUCCESS')
+
+    def _get(self, path: str):
+        resp = requests.get(f"{self._base_url}{path}", headers=self._headers())
+        resp.raise_for_status()
+        return resp.json()
+
+    def is_reserved(self, resource: str) -> bool:
+        result = self._get(f'/api/v1/Reservation/check/{resource}')
+        return result.get('isReserved', False)
+
+    def get_reserved_ids(self, resource_ids: Iterable[str]) -> set:
+        results = self._post('/api/v1/Reservation/check', {'resources': list(resource_ids)})
+        return {r['resource'] for r in results if r.get('isReserved')}
 
 
 class JwtExchangeReservationProvider:
@@ -117,3 +138,20 @@ class JwtExchangeReservationProvider:
     def unreserve(self, resource: str, requester: str) -> bool:
         results = self._post('/api/v1/Reservation/unreserve', [{'requester': requester, 'resource': resource}])
         return bool(results and results[0].get('status') == 'SUCCESS')
+
+    def _get(self, path: str, *, _re_auth: bool = True):
+        headers = {'Authorization': f'Bearer {self._get_token()}'}
+        resp = requests.get(f"{self._base_url}{path}", headers=headers)
+        if resp.status_code == 401 and _re_auth:
+            self._invalidate_token()
+            return self._get(path, _re_auth=False)
+        resp.raise_for_status()
+        return resp.json()
+
+    def is_reserved(self, resource: str) -> bool:
+        result = self._get(f'/api/v1/Reservation/check/{resource}')
+        return result.get('isReserved', False)
+
+    def get_reserved_ids(self, resource_ids: Iterable[str]) -> set:
+        results = self._post('/api/v1/Reservation/check', {'resources': list(resource_ids)})
+        return {r['resource'] for r in results if r.get('isReserved')}
