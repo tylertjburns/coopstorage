@@ -296,6 +296,7 @@ class Storage:
             self,
             criteria: TransferRequestCriteria,
             dest_loc_evaluator: Callable[[Location], float] = None,
+            container_evaluator: Callable[[dcs.Container], float] = None
     ) -> TransferRequest:
         # ── Source & Container (peer resolvers) ───────────────────────────────
         # Either defines the other; if both supplied, validate consistency.
@@ -320,7 +321,9 @@ class Storage:
             # a source at L2 when the qualifier matches multiple containers).
             source = self.select_location(filter=qs.LocationQualifier(
                 has_any_containers=[criteria.container_query_args]
-            ))
+            ),
+                evaluator=container_evaluator or evaluators.random_score
+            )
             container = self.select_container(loc=source, filter=criteria.container_query_args)
 
         elif criteria.new_container is not None:
@@ -430,6 +433,7 @@ class Storage:
                                  transfer_request_criteria: Iterable[TransferRequestCriteria],
                                  dest_loc_evaluator: Callable[[Location], float] = None,
                                  unblock_dest_evaluator: Optional[Callable[[Location], float]] = None,
+                                 container_evaluator: Optional[Callable[[dcs.Container], float]] = None,
                                  _unblocking_ids: Optional[set] = None):
         _resolved_evaluator = unblock_dest_evaluator if unblock_dest_evaluator is not None else evaluators.random_score
         with self._lock:
@@ -440,6 +444,7 @@ class Storage:
                 request = self.resolve_transfer_request_criteria(
                     criteria=criteria,
                     dest_loc_evaluator=dest_loc_evaluator,
+                    container_evaluator=container_evaluator
                 )
 
                 # Reserve before unblocking — dest_loc is recorded in TransferRequestsData,
