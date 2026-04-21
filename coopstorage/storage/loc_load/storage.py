@@ -128,12 +128,25 @@ class Storage:
     def get_locs(self,
                  criteria: qs.LocationQualifier=None) -> Dict[UniqueIdentifier, Location]:
         with self._lock:
-            is_reserved = self._is_location_reserved if criteria is not None and criteria.reserved is not None else None
+            if criteria is not None and criteria.reserved is not None:
+                _reserved_loc_ids = self.get_reserved_location_ids()
+                is_reserved = lambda loc_id: str(loc_id) in _reserved_loc_ids
+            else:
+                is_reserved = None
+
+            _needs_ctr = (criteria is not None and
+                          (criteria.has_any_containers is not None or criteria.has_all_containers is not None))
+            if _needs_ctr:
+                _reserved_ctr_ids = self.get_reserved_container_ids()
+                is_container_reserved = lambda cid: str(cid) in _reserved_ctr_ids
+            else:
+                is_container_reserved = None
+
             return self._data_store.LocationsData.get(
                 criteria,
                 container_provider=self._data_store.ContainersData.get,
                 is_reserved=is_reserved,
-                is_container_reserved=self._is_container_reserved,
+                is_container_reserved=is_container_reserved,
             )
 
     def register_containers(self, containers: Iterable[dcs.Container]=None):
@@ -154,7 +167,11 @@ class Storage:
     def get_containers(self,
                   criteria: qs.ContainerQualifier=None)->Dict[UniqueIdentifier, dcs.Container]:
         with self._lock:
-            is_reserved = self._is_container_reserved if criteria is not None and criteria.reserved is not None else None
+            if criteria is not None and criteria.reserved is not None:
+                _reserved_ctr_ids = self.get_reserved_container_ids()
+                is_reserved = lambda cid: str(cid) in _reserved_ctr_ids
+            else:
+                is_reserved = None
             return self._data_store.ContainersData.get(qualifier=criteria, is_reserved=is_reserved)
 
     def add_content_to_container_at_location(self,
@@ -208,13 +225,26 @@ class Storage:
         if filter is None and container is None:
             return list(self._data_store.LocationsData.iter_values())
 
+        if filter is not None and filter.reserved is not None:
+            _reserved_loc_ids = self.get_reserved_location_ids()
+            is_reserved = lambda loc_id: str(loc_id) in _reserved_loc_ids
+        else:
+            is_reserved = None
+
+        _needs_ctr = (filter is not None and
+                      (filter.has_any_containers is not None or filter.has_all_containers is not None))
+        if _needs_ctr:
+            _reserved_ctr_ids = self.get_reserved_container_ids()
+            is_container_reserved = lambda cid: str(cid) in _reserved_ctr_ids
+        else:
+            is_container_reserved = None
+
         container_provider = self._data_store.ContainersData.get
-        is_reserved = self._is_location_reserved if filter is not None and filter.reserved is not None else None
         return [
             loc for loc in self._data_store.LocationsData.iter_values()
             if filter is None or filter.check_if_qualifies(
                 loc, container_provider=container_provider, container=container,
-                is_reserved=is_reserved, is_container_reserved=self._is_container_reserved)
+                is_reserved=is_reserved, is_container_reserved=is_container_reserved)
         ]
 
 
@@ -231,12 +261,25 @@ class Storage:
                         container: dcs.Container = None):
         # Fast path: no custom evaluator — return the first qualifying location immediately
         if evaluator is None:
+            if filter is not None and filter.reserved is not None:
+                _reserved_loc_ids = self.get_reserved_location_ids()
+                is_reserved = lambda loc_id: str(loc_id) in _reserved_loc_ids
+            else:
+                is_reserved = None
+
+            _needs_ctr = (filter is not None and
+                          (filter.has_any_containers is not None or filter.has_all_containers is not None))
+            if _needs_ctr:
+                _reserved_ctr_ids = self.get_reserved_container_ids()
+                is_container_reserved = lambda cid: str(cid) in _reserved_ctr_ids
+            else:
+                is_container_reserved = None
+
             container_provider = self._data_store.ContainersData.get
-            is_reserved = self._is_location_reserved if filter is not None and filter.reserved is not None else None
             for loc in self._data_store.LocationsData.iter_values():
                 if filter is None or filter.check_if_qualifies(
                         loc, container_provider=container_provider, container=container,
-                        is_reserved=is_reserved, is_container_reserved=self._is_container_reserved):
+                        is_reserved=is_reserved, is_container_reserved=is_container_reserved):
                     return loc
             raise errs.NoLocationsMatchFilterCriteriaException(filter)
 
@@ -302,7 +345,11 @@ class Storage:
                     loc: Location,
                     filter: qs.ContainerQualifier):
         containers = list(self._data_store.ContainersData.get(ids=loc.ContainerIds).values())
-        is_reserved = self._is_container_reserved if filter.reserved is not None else None
+        if filter.reserved is not None:
+            _reserved_ctr_ids = self.get_reserved_container_ids()
+            is_reserved = lambda cid: str(cid) in _reserved_ctr_ids
+        else:
+            is_reserved = None
         ret = comm.filter(containers, qualifier=lambda c: filter.check_if_qualifies(c, is_reserved=is_reserved))
         return ret[0]
 
@@ -522,36 +569,22 @@ class Storage:
         return [loc for loc in self._data_store.LocationsData.get().values() if len(loc.ContainerIds) == 0]
 
     def _is_container_reserved(self, container_id) -> bool:
-        return any(
-            req.container_reservation_token is not None and str(req.container.id) == str(container_id)
-            for req in self._data_store.TransferRequestsData.get().values()
-        )
+        return self._reservation_provider.is_reserved(str(container_id))
 
     def _is_location_reserved(self, location_id) -> bool:
-        return any(
-            req.destination_reservation_token is not None
-            and req.dest_loc is not None
-            and str(req.dest_loc.Id) == str(location_id)
-            for req in self._data_store.TransferRequestsData.get().values()
-        )
+        return self._reservation_provider.is_reserved(str(location_id))
 
     def get_reserved_container_ids(self) -> set:
         """Return the set of container IDs that currently have an active reservation."""
         with self._lock:
-            return {
-                str(req.container.id)
-                for req in self._data_store.TransferRequestsData.get().values()
-                if req.container_reservation_token is not None
-            }
+            ids = [str(k) for k in self._data_store.ContainersData.get().keys()]
+            return self._reservation_provider.get_reserved_ids(ids)
 
     def get_reserved_location_ids(self) -> set:
         """Return the set of location IDs that currently have an active reservation."""
         with self._lock:
-            return {
-                str(req.dest_loc.Id)
-                for req in self._data_store.TransferRequestsData.get().values()
-                if req.destination_reservation_token is not None and req.dest_loc is not None
-            }
+            ids = [str(k) for k in self._data_store.LocationsData.get().keys()]
+            return self._reservation_provider.get_reserved_ids(ids)
 
     def content_at_location(self, loc_id: UniqueIdentifier) -> List[dcs.ContainerContent]:
         """All ContainerContent across every container at a location, aggregated by (resource, uom)."""
