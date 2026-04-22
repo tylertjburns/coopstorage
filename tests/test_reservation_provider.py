@@ -49,14 +49,16 @@ class TestApiKeyReservationProviderCheckMethods(unittest.TestCase):
         )
         self._expected_headers = {'X-Api-Key': 'test-api-key'}
 
-    def _mock_get_response(self, payload):
+    def _mock_get_response(self, payload, status_code=200):
         resp = MagicMock()
+        resp.status_code = status_code
         resp.json.return_value = payload
         resp.raise_for_status = MagicMock()
         return resp
 
-    def _mock_post_response(self, payload):
+    def _mock_post_response(self, payload, status_code=200):
         resp = MagicMock()
+        resp.status_code = status_code
         resp.json.return_value = payload
         resp.raise_for_status = MagicMock()
         return resp
