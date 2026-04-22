@@ -355,6 +355,7 @@
             <option value="row">Row</option>
             <option value="bay">Bay</option>
             <option value="shelf">Shelf</option>
+            <option value="loc">Location</option>
           </select>
         </div>
         <div class="viz-field">
@@ -371,6 +372,7 @@
             <option value="none" selected>None</option>
             <option value="dots">Dots</option>
             <option value="grey">Grey tiles</option>
+            <option value="grey-slots">Grey tiles with slots</option>
           </select>
         </div>
       </div>
@@ -413,6 +415,7 @@
             <option value="row" selected>Row</option>
             <option value="bay">Bay</option>
             <option value="shelf">Shelf</option>
+            <option value="loc">Location</option>
           </select>
         </div>
         <div class="viz-field">
@@ -429,6 +432,7 @@
             <option value="none">None</option>
             <option value="dots" selected>Dots</option>
             <option value="grey">Grey tiles</option>
+            <option value="grey-slots">Grey tiles with slots</option>
           </select>
         </div>
       </div>
@@ -447,7 +451,10 @@
 
     <!-- High zoom tier -->
     <div class="viz-tier-section">
-      <div class="viz-tier-header">High zoom</div>
+      <div class="viz-tier-header">
+        High zoom
+        <span>scale &lt; <input id="viz-lod-ultra" type="number" min="0.5" max="200" step="1" value="10" /></span>
+      </div>
       <div class="viz-field">
         <label>Wireframes</label>
         <div class="viz-wf-checks">
@@ -468,6 +475,7 @@
             <option value="row">Row</option>
             <option value="bay" selected>Bay</option>
             <option value="shelf">Shelf</option>
+            <option value="loc">Location</option>
           </select>
         </div>
         <div class="viz-field">
@@ -484,6 +492,7 @@
             <option value="none">None</option>
             <option value="dots">Dots</option>
             <option value="grey" selected>Grey tiles</option>
+            <option value="grey-slots">Grey tiles with slots</option>
           </select>
         </div>
       </div>
@@ -494,6 +503,63 @@
           <option value="zone">Zone</option>
           <option value="aisle" selected>Aisle</option>
           <option value="row">Row</option>
+          <option value="bay">Bay</option>
+          <option value="shelf">Shelf</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Ultra high zoom tier -->
+    <div class="viz-tier-section">
+      <div class="viz-tier-header">Ultra high zoom</div>
+      <div class="viz-field">
+        <label>Wireframes</label>
+        <div class="viz-wf-checks">
+          <label><input type="checkbox" class="viz-wf-ultra" value="zone"> zone</label>
+          <label><input type="checkbox" class="viz-wf-ultra" value="aisle"> aisle</label>
+          <label><input type="checkbox" class="viz-wf-ultra" value="row"> row</label>
+          <label><input type="checkbox" class="viz-wf-ultra" value="bay" checked> bay</label>
+          <label><input type="checkbox" class="viz-wf-ultra" value="shelf" checked> shelf</label>
+        </div>
+      </div>
+      <div class="viz-row">
+        <div class="viz-field">
+          <label>Hover level</label>
+          <select id="viz-hover-level-ultra">
+            <option value="">None</option>
+            <option value="zone">Zone</option>
+            <option value="aisle">Aisle</option>
+            <option value="row">Row</option>
+            <option value="bay">Bay</option>
+            <option value="shelf">Shelf</option>
+            <option value="loc" selected>Location</option>
+          </select>
+        </div>
+        <div class="viz-field">
+          <label>Hover detail</label>
+          <select id="viz-hover-detail-ultra">
+            <option value="none">None</option>
+            <option value="dots">Dots</option>
+            <option value="tiles" selected>Tiles</option>
+          </select>
+        </div>
+        <div class="viz-field">
+          <label>Loc display</label>
+          <select id="viz-locs-ultra">
+            <option value="none">None</option>
+            <option value="dots">Dots</option>
+            <option value="grey">Grey tiles</option>
+            <option value="grey-slots" selected>Grey tiles with slots</option>
+          </select>
+        </div>
+      </div>
+      <div class="viz-field" id="viz-wf-hover-row-ultra">
+        <label>Hover wireframe level</label>
+        <select id="viz-wf-hover-level-ultra">
+          <option value="">None</option>
+          <option value="zone">Zone</option>
+          <option value="aisle">Aisle</option>
+          <option value="row" selected>Row</option>
           <option value="bay">Bay</option>
           <option value="shelf">Shelf</option>
         </select>
@@ -547,14 +613,16 @@ const containers       = new Map();   // flat container registry
 const transferRequests = new Map();   // transfer_request_id → { transfer_request_id, container_id, source_loc_id, dest_loc_id }
 
 // ─── Viz config ───────────────────────────────────────────────────────────────
-// Three zoom tiers. lodMidThreshold separates low from mid; lodHighThreshold separates mid from high.
+// Four zoom tiers. lodMidThreshold separates low from mid; lodHighThreshold separates mid from high;
+// lodUltraThreshold separates high from ultra.
 const vizConfig = {
-  lodMidThreshold:  1.25,  // scale: below → low tier
-  lodHighThreshold: 4,     // scale: above → high tier (between the two = mid)
-  showLocIds:       false,
-  showZoneOrigins:  false,
-  showCompass:      true,
-  showGrid:         true,
+  lodMidThreshold:   1.25,  // scale: below → low tier
+  lodHighThreshold:  4,     // scale: above → high tier (between mid and high thresholds = mid)
+  lodUltraThreshold: 10,    // scale: above → ultra tier
+  showLocIds:        false,
+  showZoneOrigins:   false,
+  showCompass:       true,
+  showGrid:          true,
   tiers: {
     low: {
       wireframeLevels:     ['zone', 'aisle'],
@@ -576,6 +644,13 @@ const vizConfig = {
       hoverDetail:         'tiles',
       hoverWireframeLevel: 'aisle',
       locsDisplay:         'grey',
+    },
+    ultra: {
+      wireframeLevels:     ['bay', 'shelf'],
+      hoverLevel:          'loc',
+      hoverDetail:         'tiles',
+      hoverWireframeLevel: 'row',
+      locsDisplay:         'grey-slots',
     },
   },
 };
@@ -668,8 +743,9 @@ const hoverIndices     = new Map();
 const groupBoxCache    = new Map();
 
 function _activeTier() {
-  if (scale >= vizConfig.lodHighThreshold) return 'high';
-  if (scale >= vizConfig.lodMidThreshold)  return 'mid';
+  if (scale >= vizConfig.lodUltraThreshold) return 'ultra';
+  if (scale >= vizConfig.lodHighThreshold)  return 'high';
+  if (scale >= vizConfig.lodMidThreshold)   return 'mid';
   return 'low';
 }
 function _activeTierConfig() { return vizConfig.tiers[_activeTier()]; }
@@ -679,6 +755,7 @@ let   hoveredLocId    = null;
 
 function _groupKey(loc, level) {
   if (!level) return null;
+  if (level === 'loc') return `loc_${loc.id}`;   // each location is its own group
   const tp = loc.tree_path;
   if (!tp) return null;
   // Build a key from all tree path values up to and including the target level.
@@ -871,15 +948,21 @@ function _drawGroupLabel(key, index, level) {
     ? project((box.minX + box.maxX) / 2, box.minY, box.maxZ)
     : project((box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2, 0);
   const sample = ids ? locations.get([...ids][0]) : null;
-  if (!sample || !sample.tree_path) return;
-  const tp  = sample.tree_path;
-  const val = tp[level] !== undefined ? tp[level] : key;
+  if (!sample) return;
+  let text;
+  if (level === 'loc') {
+    text = String(sample.id);
+  } else {
+    if (!sample.tree_path) return;
+    const tp  = sample.tree_path;
+    const val = tp[level] !== undefined ? tp[level] : key;
+    text = `${level[0].toUpperCase()}${val}`;
+  }
   ctx.fillStyle    = '#c9d1d9';
   ctx.font         = 'bold 11px monospace';
   ctx.textAlign    = 'center';
   ctx.textBaseline = 'bottom';
   // Subtle dark backing so text is readable over any wireframe colour
-  const text = `${level[0].toUpperCase()}${val}`;
   const tw = ctx.measureText(text).width;
   ctx.fillStyle = 'rgba(13,17,23,0.72)';
   ctx.fillRect(lx - tw / 2 - 2, ly - 12, tw + 4, 12);
@@ -1321,6 +1404,8 @@ function _paintBackground(tc) {
           if (occupied) dotsOccupied.push(sx, sy);
           else          dotsEmpty.push(sx, sy);
         }
+      } else if (tc.locsDisplay === 'grey-slots') {
+        _drawLocGreySlots(loc);
       } else {   // 'grey'
         _drawLocGrey(loc);
       }
@@ -1463,6 +1548,42 @@ function _flushDots(dotsEmpty, dotsOccupied, dotsReserved, r) {
       ctx.rect(dotsReserved[i] - r, dotsReserved[i+1] - r, d, d);
     ctx.fillStyle = AMBER;
     ctx.fill();
+  }
+}
+
+// Grey draw with slot bounding boxes: location bounding box + simple slot outlines.
+// No occupancy colors, no labels — lightweight O(n_slots) draw for ultra zoom background.
+function _drawLocGreySlots(loc) {
+  const [wx, wy, wz] = loc.coords;
+  const [dx, dy, dz] = loc.meta.dims;
+  const locReserved = reservedLocationIds.has(String(loc.id));
+
+  // Location bounding box (same as _drawLocGrey)
+  const locFill   = 'rgba(20,22,26,0.5)';
+  const locStroke = locReserved ? AMBER : '#2a2f38';
+  if (isIso) {
+    drawIsoCube(wx, wy, wz, dx, dy, dz, locFill, locFill, locFill, locStroke);
+  } else {
+    drawTopBox(wx, wy, dx, dy, locFill, locStroke);
+  }
+
+  // Slot fills — occupancy-colored, no stroke
+  if (loc.slot_dims && loc.slot_offsets) {
+    const [sdx, sdy, sdz] = loc.slot_dims;
+    for (let i = 0; i < loc.slots.length; i++) {
+      const [ox, oy, oz] = loc.slot_offsets[i];
+      const cid = loc.slots[i];
+      const occ = cid !== null;
+      const isReserved = occ && reservedContainerIds.has(String(cid));
+      const topCol  = isReserved ? 'rgba(61,46,0,0.5)'  : (occ ? 'rgba(26,74,26,0.5)'  : 'rgba(28,33,40,0.5)');
+      const sideCol = isReserved ? 'rgba(42,30,0,0.5)'  : (occ ? 'rgba(15,46,15,0.5)'  : 'rgba(20,26,31,0.5)');
+      const sx2 = wx + ox, sy2 = wy + oy, sz2 = wz + oz;
+      if (isIso) {
+        drawIsoCube(sx2, sy2, sz2, sdx, sdy, sdz, topCol, sideCol, sideCol, 'rgba(0,0,0,0)');
+      } else {
+        drawTopBox(sx2, sy2, sdx, sdy, topCol, 'rgba(0,0,0,0)');
+      }
+    }
   }
 }
 
@@ -2517,7 +2638,7 @@ function _readWfChecks(cls) {
 }
 
 // Wireframe checkboxes
-for (const [tier, cls] of [['low','viz-wf-low'],['mid','viz-wf-mid'],['high','viz-wf-high']]) {
+for (const [tier, cls] of [['low','viz-wf-low'],['mid','viz-wf-mid'],['high','viz-wf-high'],['ultra','viz-wf-ultra']]) {
   for (const cb of document.querySelectorAll(`.${cls}`)) {
     cb.addEventListener('change', () => {
       vizConfig.tiers[tier].wireframeLevels = _readWfChecks(cls);
@@ -2535,9 +2656,13 @@ document.getElementById('viz-lod-high').addEventListener('change', e => {
   const v = parseFloat(e.target.value);
   if (v > 0) { vizConfig.lodHighThreshold = v; _applyVizConfig(); }
 });
+document.getElementById('viz-lod-ultra').addEventListener('change', e => {
+  const v = parseFloat(e.target.value);
+  if (v > 0) { vizConfig.lodUltraThreshold = v; _applyVizConfig(); }
+});
 
 // Per-tier hover level / detail / locs display / hover wireframe level
-for (const tier of ['low', 'mid', 'high']) {
+for (const tier of ['low', 'mid', 'high', 'ultra']) {
   document.getElementById(`viz-hover-level-${tier}`).addEventListener('change', e => {
     vizConfig.tiers[tier].hoverLevel = e.target.value || null;
     _applyVizConfig();
