@@ -4,6 +4,8 @@ from typing import Iterable, Optional, Protocol
 import logging
 import requests
 
+logger = logging.getLogger(__name__)
+
 
 class ReservationProvider(Protocol):
     def reserve(self, resource: str, requester: str, resource_type: str = None) -> Optional[str]: ...
@@ -44,15 +46,20 @@ class ApiKeyReservationProvider:
             resp.raise_for_status()
             return resp.json()
         except requests.exceptions.ConnectionError:
-            logging.warning(f"Reservation service unreachable at {self._base_url}{path} — skipping.")
+            logger.warning(f"Reservation service unreachable at {self._base_url}{path} — skipping.")
             return []
 
     def reserve(self, resource: str, requester: str, resource_type: str = None) -> Optional[str]:
         results = self._post('/api/v1/Reservation/reserve', [{'requester': requester, 'resource': resource, 'resourceType': resource_type or "storage" }])
         if results and results[0].get('status') == 'SUCCESS':
             token = results[0].get('releaseToken')
-            logging.debug(f"Reserve OK: resource={resource} token={token} response={results[0]}")
+            if token is None:
+                logger.error(f"Reserve succeeded but releaseToken missing: resource={resource} response={results[0]}")
+                return None
+            logger.debug(f"Reserve OK: resource={resource} token={token}")
             return token
+        explanation = results[0].get('explanation') if results else 'empty response (service unreachable?)'
+        logger.error(f"Reserve FAILED: resource={resource} requester={requester} explanation={explanation} response={results}")
         return None
 
     def unreserve(self, resource: str, requester: str, token: str) -> bool:
@@ -60,7 +67,7 @@ class ApiKeyReservationProvider:
         success = bool(results and results[0].get('status') == 'SUCCESS')
         if not success:
             reason = results[0].get('explanation') if results else 'no response'
-            logging.error(f"Unreserve FAILED: resource={resource} requester={requester} token={token} reason={reason} response={results}")
+            logger.error(f"Unreserve FAILED: resource={resource} requester={requester} token={token} reason={reason} response={results}")
         return success
 
     def _get(self, path: str):
@@ -73,7 +80,10 @@ class ApiKeyReservationProvider:
         return result.get('isReserved', False)
 
     def get_reserved_ids(self, resource_ids: Iterable[str]) -> set:
-        results = self._post('/api/v1/Reservation/check', {'resources': list(resource_ids)})
+        ids = list(resource_ids)
+        if not ids:
+            return set()
+        results = self._post('/api/v1/Reservation/check', {'resources': ids})
         return {r['resource'] for r in results if r.get('isReserved')}
 
 
@@ -102,7 +112,7 @@ class JwtExchangeReservationProvider:
             )
             resp.raise_for_status()
         except requests.exceptions.ConnectionError:
-            logging.warning(f"Reservation service unreachable at {self._base_url}/auth/token — will retry on next request.")
+            logger.warning(f"Reservation service unreachable at {self._base_url}/auth/token — will retry on next request.")
             raise
         data = resp.json()
         self._token = data['accessToken']
@@ -124,23 +134,23 @@ class JwtExchangeReservationProvider:
             headers = {'Authorization': f'Bearer {self._get_token()}'}
         except requests.exceptions.ConnectionError:
             return []
-        logging.debug(f"Sending request to {path}")
+        logger.debug(f"Sending request to {path}")
         resp = requests.post(f"{self._base_url}{path}", json=body, headers=headers)
         if resp.status_code == 401 and _re_auth:
-            logging.warning("Received 401 Unauthorized, refreshing token and retrying...")
+            logger.warning("Received 401 Unauthorized, refreshing token and retrying...")
             self._invalidate_token()
             return self._post(path, body, _re_auth=False)
         elif resp.status_code == 429:
-            logging.warning(f"Received 429 Too Many Requests, retrying after backoff...")
+            logger.warning(f"Received 429 Too Many Requests on POST {self._base_url}{path}, retrying after backoff...")
             retry_after = int(resp.headers.get('Retry-After', '1'))
             time.sleep(retry_after)
             return self._post(path, body, _re_auth=_re_auth, attempts=attempts)
         elif resp.status_code >= 500 and attempts > 0:
-            logging.warning(f"Received {resp.status_code} Internal Server Error, retrying after backoff...")
+            logger.warning(f"Received {resp.status_code} Internal Server Error, retrying after backoff...")
             time.sleep(1)  # Backoff before retrying
             return self._post(path, body, _re_auth=_re_auth, attempts=attempts - 1)
         elif resp.status_code >= 400:
-            logging.error(f"Request to {path} failed with status {resp.status_code}: {resp.text}")
+            logger.error(f"Request to {path} failed with status {resp.status_code}: {resp.text}")
             raise requests.HTTPError(f"Request to {path} failed with status {resp.status_code}: {resp.text}")
         resp.raise_for_status()
         return resp.json()
@@ -149,9 +159,13 @@ class JwtExchangeReservationProvider:
         results = self._post('/api/v1/Reservation/reserve', [{'requester': requester, 'resource': resource, 'resourceType': resource_type or "storage" }])
         if results and results[0].get('status') == 'SUCCESS':
             token = results[0].get('releaseToken')
-            logging.debug(f"Reserve OK: resource={resource} token={token} response={results[0]}")
+            if token is None:
+                logger.error(f"Reserve succeeded but releaseToken missing: resource={resource} response={results[0]}")
+                return None
+            logger.debug(f"Reserve OK: resource={resource} token={token}")
             return token
-        logging.warning(f"Reserve non-SUCCESS: resource={resource} requester={requester} response={results}")
+        explanation = results[0].get('explanation') if results else 'empty response (service unreachable?)'
+        logger.error(f"Reserve FAILED: resource={resource} requester={requester} explanation={explanation} response={results}")
         return None
 
     def unreserve(self, resource: str, requester: str, token: str) -> bool:
@@ -159,7 +173,7 @@ class JwtExchangeReservationProvider:
         success = bool(results and results[0].get('status') == 'SUCCESS')
         if not success:
             reason = results[0].get('explanation') if results else 'no response'
-            logging.error(f"Unreserve FAILED: resource={resource} requester={requester} token={token} reason={reason} response={results}")
+            logger.error(f"Unreserve FAILED: resource={resource} requester={requester} token={token} reason={reason} response={results}")
         return success
 
     def _get(self, path: str, *, _re_auth: bool = True):
@@ -179,5 +193,8 @@ class JwtExchangeReservationProvider:
         return result.get('isReserved', False)
 
     def get_reserved_ids(self, resource_ids: Iterable[str]) -> set:
-        results = self._post('/api/v1/Reservation/check', {'resources': list(resource_ids)})
+        ids = list(resource_ids)
+        if not ids:
+            return set()
+        results = self._post('/api/v1/Reservation/check', {'resources': ids})
         return {r['resource'] for r in results if r.get('isReserved')}
