@@ -1560,18 +1560,14 @@ function _flushDots(dotsEmpty, dotsOccupied, dotsReserved, r) {
 // Result: at most 6 fill() calls regardless of location/slot count, vs one
 //         fill() per face per slot in the naive approach.
 function _paintGreySlotsLayer() {
-  const EMPTY_TOP  = 'rgba(28,33,40,0.5)';
-  const EMPTY_SIDE = 'rgba(20,26,31,0.5)';
-  const OCC_TOP    = 'rgba(26,74,26,0.5)';
-  const OCC_SIDE   = 'rgba(15,46,15,0.5)';
-  const RES_TOP    = 'rgba(61,46,0,0.5)';
-  const RES_SIDE   = 'rgba(42,30,0,0.5)';
+  // One color per occupancy state — uniform across all faces of each slot cube
+  // to prevent inter-face compositing artifacts when adjacent cube faces overlap.
+  const EMPTY_COL = 'rgba(20,26,31,0.5)';
+  const OCC_COL   = 'rgba(15,46,15,0.5)';
+  const RES_COL   = 'rgba(42,30,0,0.5)';
 
-  // Flat arrays: 8 numbers per quad (4 projected [x,y] screen points)
-  const emptyTop = [], emptySide = [];
-  const occTop   = [], occSide   = [];
-  const resTop   = [], resSide   = [];
-
+  // Batch within each location (not across locations) to preserve inter-location
+  // painter's-algorithm depth ordering in isometric view.
   for (const loc of locations.values()) {
     const [sx, sy] = project(...loc.coords);
     if (sx < -300 || sx > W + 300 || sy < -300 || sy > H + 300) continue;
@@ -1580,7 +1576,7 @@ function _paintGreySlotsLayer() {
     const [dx, dy, dz] = loc.meta.dims;
     const locReserved  = reservedLocationIds.has(String(loc.id));
 
-    // Pass 1 — loc bounding box (per-location, unchanged)
+    // Loc bounding box — one draw per location (unchanged)
     const locFill   = 'rgba(20,22,26,0.5)';
     const locStroke = locReserved ? AMBER : '#2a2f38';
     if (isIso) {
@@ -1592,55 +1588,54 @@ function _paintGreySlotsLayer() {
     if (!loc.slot_dims || !loc.slot_offsets) continue;
     const [sdx, sdy, sdz] = loc.slot_dims;
 
-    // Pass 2 — collect slot face quads into buckets
+    // Collect this location's slot face quads into 3 mini-buckets, then flush.
+    // Reduces fill() calls from n_slots×3 to 3 per location while keeping
+    // correct depth ordering between locations.
+    const emptyPts = [], occPts = [], resPts = [];
+
     for (let i = 0; i < loc.slots.length; i++) {
       const [ox, oy, oz] = loc.slot_offsets[i];
       const cid = loc.slots[i];
       const occ = cid !== null;
       const isReserved = occ && reservedContainerIds.has(String(cid));
-
-      const topBucket  = isReserved ? resTop  : (occ ? occTop  : emptyTop);
-      const sideBucket = isReserved ? resSide : (occ ? occSide : emptySide);
+      const bucket = isReserved ? resPts : (occ ? occPts : emptyPts);
 
       const x0 = wx + ox, y0 = wy + oy, z0 = wz + oz;
 
       if (isIso) {
-        // Left face (y+ side — sideCol)
+        // Left face (y+ side)
         const lf0 = project(x0,     y0+sdy, z0);
         const lf1 = project(x0+sdx, y0+sdy, z0);
         const lf2 = project(x0+sdx, y0+sdy, z0+sdz);
         const lf3 = project(x0,     y0+sdy, z0+sdz);
-        sideBucket.push(lf0[0],lf0[1], lf1[0],lf1[1], lf2[0],lf2[1], lf3[0],lf3[1]);
+        bucket.push(lf0[0],lf0[1], lf1[0],lf1[1], lf2[0],lf2[1], lf3[0],lf3[1]);
 
-        // Right face (x+ side — sideCol)
+        // Right face (x+ side)
         const rf0 = project(x0+sdx, y0,     z0);
         const rf1 = project(x0+sdx, y0+sdy, z0);
         const rf2 = project(x0+sdx, y0+sdy, z0+sdz);
         const rf3 = project(x0+sdx, y0,     z0+sdz);
-        sideBucket.push(rf0[0],rf0[1], rf1[0],rf1[1], rf2[0],rf2[1], rf3[0],rf3[1]);
+        bucket.push(rf0[0],rf0[1], rf1[0],rf1[1], rf2[0],rf2[1], rf3[0],rf3[1]);
 
-        // Top face (z+ side — topCol)
+        // Top face (z+ side)
         const tf0 = project(x0,     y0+sdy, z0+sdz);
         const tf1 = project(x0+sdx, y0+sdy, z0+sdz);
         const tf2 = project(x0+sdx, y0,     z0+sdz);
         const tf3 = project(x0,     y0,     z0+sdz);
-        topBucket.push(tf0[0],tf0[1], tf1[0],tf1[1], tf2[0],tf2[1], tf3[0],tf3[1]);
+        bucket.push(tf0[0],tf0[1], tf1[0],tf1[1], tf2[0],tf2[1], tf3[0],tf3[1]);
       } else {
-        // 2D top-down: single rect into topBucket
+        // 2D top-down: single rect
         const [bx0, by0] = project(x0,     y0,     0);
         const [bx1, by1] = project(x0+sdx, y0+sdy, 0);
-        topBucket.push(bx0,by0, bx1,by0, bx1,by1, bx0,by1);
+        bucket.push(bx0,by0, bx1,by0, bx1,by1, bx0,by1);
       }
     }
-  }
 
-  // Flush — at most 6 fill() calls for all slots across all locations
-  _flushFaceBucket(emptyTop,  EMPTY_TOP);
-  _flushFaceBucket(emptySide, EMPTY_SIDE);
-  _flushFaceBucket(occTop,    OCC_TOP);
-  _flushFaceBucket(occSide,   OCC_SIDE);
-  _flushFaceBucket(resTop,    RES_TOP);
-  _flushFaceBucket(resSide,   RES_SIDE);
+    // Flush this location's slots — 3 fill() calls max per location
+    _flushFaceBucket(emptyPts, EMPTY_COL);
+    _flushFaceBucket(occPts,   OCC_COL);
+    _flushFaceBucket(resPts,   RES_COL);
+  }
 }
 
 // Draw all quads in a bucket (flat array: 8 numbers per quad) with one fill().
