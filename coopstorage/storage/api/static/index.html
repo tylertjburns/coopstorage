@@ -1389,28 +1389,30 @@ function _paintBackground(tc) {
 
   // All locs using locsDisplay (no hover distinction — hover drawn on top)
   if (tc.locsDisplay !== 'none') {
-    const r = Math.max(1.5, scale * 0.6);
-    const dotsEmpty = [], dotsOccupied = [], dotsReserved = [];
-    for (const loc of locations.values()) {
-      const [sx, sy] = project(...loc.coords);
-      if (sx < -300 || sx > W + 300 || sy < -300 || sy > H + 300) continue;
-      if (tc.locsDisplay === 'dots') {
-        const locReserved = reservedLocationIds.has(String(loc.id));
-        const hasReservedContainer = loc.slots.some(s => s !== null && reservedContainerIds.has(String(s)));
-        if (locReserved || hasReservedContainer) {
-          dotsReserved.push(sx, sy);
-        } else {
-          const occupied = loc.slots.some(s => s !== null);
-          if (occupied) dotsOccupied.push(sx, sy);
-          else          dotsEmpty.push(sx, sy);
+    if (tc.locsDisplay === 'grey-slots') {
+      _paintGreySlotsLayer();
+    } else {
+      const r = Math.max(1.5, scale * 0.6);
+      const dotsEmpty = [], dotsOccupied = [], dotsReserved = [];
+      for (const loc of locations.values()) {
+        const [sx, sy] = project(...loc.coords);
+        if (sx < -300 || sx > W + 300 || sy < -300 || sy > H + 300) continue;
+        if (tc.locsDisplay === 'dots') {
+          const locReserved = reservedLocationIds.has(String(loc.id));
+          const hasReservedContainer = loc.slots.some(s => s !== null && reservedContainerIds.has(String(s)));
+          if (locReserved || hasReservedContainer) {
+            dotsReserved.push(sx, sy);
+          } else {
+            const occupied = loc.slots.some(s => s !== null);
+            if (occupied) dotsOccupied.push(sx, sy);
+            else          dotsEmpty.push(sx, sy);
+          }
+        } else {   // 'grey'
+          _drawLocGrey(loc);
         }
-      } else if (tc.locsDisplay === 'grey-slots') {
-        _drawLocGreySlots(loc);
-      } else {   // 'grey'
-        _drawLocGrey(loc);
       }
+      if (tc.locsDisplay === 'dots') _flushDots(dotsEmpty, dotsOccupied, dotsReserved, r);
     }
-    if (tc.locsDisplay === 'dots') _flushDots(dotsEmpty, dotsOccupied, dotsReserved, r);
   }
 
   ctx = savedCtx;   // eslint-disable-line no-global-assign
@@ -1551,40 +1553,109 @@ function _flushDots(dotsEmpty, dotsOccupied, dotsReserved, r) {
   }
 }
 
-// Grey draw with slot bounding boxes: location bounding box + simple slot outlines.
-// No occupancy colors, no labels — lightweight O(n_slots) draw for ultra zoom background.
-function _drawLocGreySlots(loc) {
-  const [wx, wy, wz] = loc.coords;
-  const [dx, dy, dz] = loc.meta.dims;
-  const locReserved = reservedLocationIds.has(String(loc.id));
+// ─── Batched grey-slots background renderer ───────────────────────────────────
+// Pass 1: draw each location's bounding box individually (one cube per loc).
+// Pass 2: collect all slot face quads into 6 color buckets across every visible
+//         location, then flush each bucket with a single beginPath + fill().
+// Result: at most 6 fill() calls regardless of location/slot count, vs one
+//         fill() per face per slot in the naive approach.
+function _paintGreySlotsLayer() {
+  const EMPTY_TOP  = 'rgba(28,33,40,0.5)';
+  const EMPTY_SIDE = 'rgba(20,26,31,0.5)';
+  const OCC_TOP    = 'rgba(26,74,26,0.5)';
+  const OCC_SIDE   = 'rgba(15,46,15,0.5)';
+  const RES_TOP    = 'rgba(61,46,0,0.5)';
+  const RES_SIDE   = 'rgba(42,30,0,0.5)';
 
-  // Location bounding box (same as _drawLocGrey)
-  const locFill   = 'rgba(20,22,26,0.5)';
-  const locStroke = locReserved ? AMBER : '#2a2f38';
-  if (isIso) {
-    drawIsoCube(wx, wy, wz, dx, dy, dz, locFill, locFill, locFill, locStroke);
-  } else {
-    drawTopBox(wx, wy, dx, dy, locFill, locStroke);
-  }
+  // Flat arrays: 8 numbers per quad (4 projected [x,y] screen points)
+  const emptyTop = [], emptySide = [];
+  const occTop   = [], occSide   = [];
+  const resTop   = [], resSide   = [];
 
-  // Slot fills — occupancy-colored, no stroke
-  if (loc.slot_dims && loc.slot_offsets) {
+  for (const loc of locations.values()) {
+    const [sx, sy] = project(...loc.coords);
+    if (sx < -300 || sx > W + 300 || sy < -300 || sy > H + 300) continue;
+
+    const [wx, wy, wz] = loc.coords;
+    const [dx, dy, dz] = loc.meta.dims;
+    const locReserved  = reservedLocationIds.has(String(loc.id));
+
+    // Pass 1 — loc bounding box (per-location, unchanged)
+    const locFill   = 'rgba(20,22,26,0.5)';
+    const locStroke = locReserved ? AMBER : '#2a2f38';
+    if (isIso) {
+      drawIsoCube(wx, wy, wz, dx, dy, dz, locFill, locFill, locFill, locStroke);
+    } else {
+      drawTopBox(wx, wy, dx, dy, locFill, locStroke);
+    }
+
+    if (!loc.slot_dims || !loc.slot_offsets) continue;
     const [sdx, sdy, sdz] = loc.slot_dims;
+
+    // Pass 2 — collect slot face quads into buckets
     for (let i = 0; i < loc.slots.length; i++) {
       const [ox, oy, oz] = loc.slot_offsets[i];
       const cid = loc.slots[i];
       const occ = cid !== null;
       const isReserved = occ && reservedContainerIds.has(String(cid));
-      const topCol  = isReserved ? 'rgba(61,46,0,0.5)'  : (occ ? 'rgba(26,74,26,0.5)'  : 'rgba(28,33,40,0.5)');
-      const sideCol = isReserved ? 'rgba(42,30,0,0.5)'  : (occ ? 'rgba(15,46,15,0.5)'  : 'rgba(20,26,31,0.5)');
-      const sx2 = wx + ox, sy2 = wy + oy, sz2 = wz + oz;
+
+      const topBucket  = isReserved ? resTop  : (occ ? occTop  : emptyTop);
+      const sideBucket = isReserved ? resSide : (occ ? occSide : emptySide);
+
+      const x0 = wx + ox, y0 = wy + oy, z0 = wz + oz;
+
       if (isIso) {
-        drawIsoCube(sx2, sy2, sz2, sdx, sdy, sdz, topCol, sideCol, sideCol, 'rgba(0,0,0,0)');
+        // Left face (y+ side — sideCol)
+        const lf0 = project(x0,     y0+sdy, z0);
+        const lf1 = project(x0+sdx, y0+sdy, z0);
+        const lf2 = project(x0+sdx, y0+sdy, z0+sdz);
+        const lf3 = project(x0,     y0+sdy, z0+sdz);
+        sideBucket.push(lf0[0],lf0[1], lf1[0],lf1[1], lf2[0],lf2[1], lf3[0],lf3[1]);
+
+        // Right face (x+ side — sideCol)
+        const rf0 = project(x0+sdx, y0,     z0);
+        const rf1 = project(x0+sdx, y0+sdy, z0);
+        const rf2 = project(x0+sdx, y0+sdy, z0+sdz);
+        const rf3 = project(x0+sdx, y0,     z0+sdz);
+        sideBucket.push(rf0[0],rf0[1], rf1[0],rf1[1], rf2[0],rf2[1], rf3[0],rf3[1]);
+
+        // Top face (z+ side — topCol)
+        const tf0 = project(x0,     y0+sdy, z0+sdz);
+        const tf1 = project(x0+sdx, y0+sdy, z0+sdz);
+        const tf2 = project(x0+sdx, y0,     z0+sdz);
+        const tf3 = project(x0,     y0,     z0+sdz);
+        topBucket.push(tf0[0],tf0[1], tf1[0],tf1[1], tf2[0],tf2[1], tf3[0],tf3[1]);
       } else {
-        drawTopBox(sx2, sy2, sdx, sdy, topCol, 'rgba(0,0,0,0)');
+        // 2D top-down: single rect into topBucket
+        const [bx0, by0] = project(x0,     y0,     0);
+        const [bx1, by1] = project(x0+sdx, y0+sdy, 0);
+        topBucket.push(bx0,by0, bx1,by0, bx1,by1, bx0,by1);
       }
     }
   }
+
+  // Flush — at most 6 fill() calls for all slots across all locations
+  _flushFaceBucket(emptyTop,  EMPTY_TOP);
+  _flushFaceBucket(emptySide, EMPTY_SIDE);
+  _flushFaceBucket(occTop,    OCC_TOP);
+  _flushFaceBucket(occSide,   OCC_SIDE);
+  _flushFaceBucket(resTop,    RES_TOP);
+  _flushFaceBucket(resSide,   RES_SIDE);
+}
+
+// Draw all quads in a bucket (flat array: 8 numbers per quad) with one fill().
+function _flushFaceBucket(pts, color) {
+  if (pts.length === 0) return;
+  ctx.beginPath();
+  for (let i = 0; i < pts.length; i += 8) {
+    ctx.moveTo(pts[i],   pts[i+1]);
+    ctx.lineTo(pts[i+2], pts[i+3]);
+    ctx.lineTo(pts[i+4], pts[i+5]);
+    ctx.lineTo(pts[i+6], pts[i+7]);
+    ctx.closePath();
+  }
+  ctx.fillStyle = color;
+  ctx.fill();
 }
 
 // Fast grey draw: just the location bounding box with occupied/empty color.
