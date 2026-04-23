@@ -10,7 +10,7 @@ with open(HERE / 'requirements.txt') as f:
     requirements = f.read().splitlines()
 
 setuptools.setup(name='coopstorage',
-      version='1.14',
+      version='1.15',
       description='Package for embedded storage systems',
       url='https://github.com/tylertjburns/coopstorage',
       author='tburns',
