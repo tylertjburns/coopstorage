@@ -5,7 +5,7 @@ from coopstorage.storage.loc_load.location import Location
 import logging
 from pprint import pformat
 from typing import Callable, Optional, Self, Dict
-from coopstorage.storage.loc_load.reservation_provider import ReservationProvider, ReservationFailedError
+from coopstorage.storage.loc_load.reservation_provider import ReservationProvider, ReservationFailedError, RateLimitedError
 from pubsub import pub
 from coopstorage.enums import StorageTopic
 
@@ -91,15 +91,14 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
                     f"dest_loc={self.dest_loc.Id} requester={requester}"
                 )
 
-    def try_acquire_reservations(self, reservation_provider: ReservationProvider) -> 'TransferRequest':
+    def acquire_reservations(self, reservation_provider: ReservationProvider) -> 'TransferRequest':
         requester = str(self.get_id())
         container_id = str(self.container.id)
         logger.debug(f"Reserving container={container_id} requester={requester}")
-        try:
-            container_token = reservation_provider.reserve(container_id, requester, resource_type="container")
-        except ReservationFailedError as exc:
-            logger.error(f"Container reservation failed: container={container_id} requester={requester} — {exc}")
-            container_token = None
+
+        # Raises ReservationFailedError (with __cause__=RateLimitedError) on 429 threshold breach.
+        # Returns None for normal denial (resource held by another requester).
+        container_token = reservation_provider.reserve(container_id, requester, resource_type="container")
         if container_token is not None:
             logger.debug(f"Container reservation OK: container={container_id} token={container_token}")
             pub.sendMessage(StorageTopic.CONTAINER_RESERVED.value, payload={
@@ -119,9 +118,11 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
             logger.debug(f"Reserving dest_loc={dest_id} requester={requester}")
             try:
                 dest_token = reservation_provider.reserve(dest_id, requester, resource_type="location")
-            except ReservationFailedError as exc:
-                logger.error(f"Dest reservation failed: dest_loc={dest_id} requester={requester} — {exc}")
-                dest_token = None
+            except ReservationFailedError:
+                # Container was already acquired — release it before propagating the rate-limit error.
+                if container_token is not None:
+                    reservation_provider.unreserve(container_id, requester, token=container_token)
+                raise
             if dest_token is not None:
                 logger.debug(f"Dest reservation OK: dest_loc={dest_id} token={dest_token}")
                 pub.sendMessage(StorageTopic.LOCATION_RESERVED.value, payload={

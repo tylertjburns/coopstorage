@@ -124,7 +124,7 @@ class TestTransferRequestReady(unittest.TestCase):
             container=_load(),
             source_loc=None,
             dest_loc=dest,
-        ).try_acquire_reservations(_PASSTHROUGH)
+        ).acquire_reservations(_PASSTHROUGH)
         self.assertTrue(tr.Ready)
 
     def test_not_ready_dest_full(self):
@@ -147,7 +147,7 @@ class TestTransferRequestReady(unittest.TestCase):
             container=_load('L1'),
             source_loc=src,
             dest_loc=dest,
-        ).try_acquire_reservations(_PASSTHROUGH)
+        ).acquire_reservations(_PASSTHROUGH)
         self.assertTrue(tr.Ready)
 
     def test_not_ready_container_not_accessible_in_source(self):
@@ -174,7 +174,7 @@ class TestTransferRequestReady(unittest.TestCase):
             container=_load('L1'),
             source_loc=src,
             dest_loc=None,
-        ).try_acquire_reservations(_PASSTHROUGH)
+        ).acquire_reservations(_PASSTHROUGH)
         self.assertTrue(tr.Ready)
 
 
