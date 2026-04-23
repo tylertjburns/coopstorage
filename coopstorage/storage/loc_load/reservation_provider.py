@@ -7,8 +7,8 @@ import requests
 logger = logging.getLogger(__name__)
 
 
-class _RateLimitedError(Exception):
-    """HTTP-transport-level signal from _HttpReservationBase when 429 retryAfter exceeds max_retry_wait."""
+class RateLimitedError(Exception):
+    """Raised when a 429 retryAfter exceeds max_retry_wait; carries retry_after for callers."""
     def __init__(self, retry_after: float):
         self.retry_after = retry_after
         super().__init__(f"Rate limited; retryAfter={retry_after:.1f}s exceeds max_retry_wait")
@@ -102,7 +102,7 @@ class _HttpReservationBase:
                     f"429 Too Many Requests on POST {path} — retryAfter={retry_after:.1f}s "
                     f"exceeds max_retry_wait={self._max_retry_wait:.1f}s; failing fast"
                 )
-                raise _RateLimitedError(retry_after)
+                raise RateLimitedError(retry_after)
             retry_at = time.strftime('%H:%M:%S', time.localtime(time.time() + retry_after))
             logger.warning(
                 f"429 Too Many Requests on POST {path} — retryAfter={retry_after:.1f}s; retrying at {retry_at}"
@@ -159,7 +159,7 @@ class _HttpReservationBase:
                     f"429 Too Many Requests on GET {path} — retryAfter={retry_after:.1f}s "
                     f"exceeds max_retry_wait={self._max_retry_wait:.1f}s; failing fast"
                 )
-                raise _RateLimitedError(retry_after)
+                raise RateLimitedError(retry_after)
             retry_at = time.strftime('%H:%M:%S', time.localtime(time.time() + retry_after))
             logger.warning(
                 f"429 Too Many Requests on GET {path} — retryAfter={retry_after:.1f}s; retrying at {retry_at}"
@@ -175,7 +175,7 @@ class _HttpReservationBase:
             results = self._post('/api/v1/Reservation/reserve', [
                 {'requester': requester, 'resource': resource, 'resourceType': resource_type or 'storage'}
             ])
-        except _RateLimitedError as exc:
+        except RateLimitedError as exc:
             raise ReservationFailedError(
                 f"reserve rate-limited (retryAfter={exc.retry_after:.1f}s): resource={resource} requester={requester}"
             ) from exc
@@ -200,7 +200,7 @@ class _HttpReservationBase:
             results = self._post('/api/v1/Reservation/unreserve', [
                 {'requester': requester, 'resource': resource, 'releaseToken': token}
             ])
-        except _RateLimitedError as exc:
+        except RateLimitedError as exc:
             raise ReservationFailedError(
                 f"unreserve rate-limited (retryAfter={exc.retry_after:.1f}s): resource={resource} requester={requester}"
             ) from exc
@@ -218,7 +218,7 @@ class _HttpReservationBase:
         logger.debug(f"is_reserved: checking resource={resource}")
         try:
             result = self._get(f'/api/v1/Reservation/check/{resource}')
-        except _RateLimitedError as exc:
+        except RateLimitedError as exc:
             raise ReservationCheckFailedError(
                 f"is_reserved rate-limited (retryAfter={exc.retry_after:.1f}s): resource={resource}"
             ) from exc
@@ -235,7 +235,7 @@ class _HttpReservationBase:
         logger.debug(f"get_reserved_ids: checking {len(ids)} IDs")
         try:
             results = self._post('/api/v1/Reservation/check', {'resources': ids})
-        except _RateLimitedError as exc:
+        except RateLimitedError as exc:
             raise ReservationCheckFailedError(
                 f"get_reserved_ids rate-limited (retryAfter={exc.retry_after:.1f}s): {len(ids)} IDs"
             ) from exc

@@ -17,6 +17,7 @@ from typing import Callable, Optional
 import coopstorage.storage.loc_load.dcs as dcs
 import coopstorage.storage.loc_load.evaluators as evaluators
 from coopstorage.storage.loc_load.qualifiers import ContainerQualifier, LocationQualifier
+from coopstorage.storage.loc_load.reservation_provider import ReservationFailedError, RateLimitedError
 from coopstorage.storage.loc_load.storage import Storage
 from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria
 from cooptools.qualifiers import PatternMatchQualifier, WhiteBlackListQualifier
@@ -137,15 +138,43 @@ def run_simulation(
                 weights=[cfg.add_weight, cfg.move_weight, cfg.remove_weight],
             )[0]
 
-        try:
+        def _run_op():
             if op == 'add':
                 _do_add()
             elif op == 'move':
                 _do_move()
             else:
                 _do_remove()
+
+        retry_after = None
+        try:
+            _run_op()
+        except ReservationFailedError as e:
+            if isinstance(e.__cause__, RateLimitedError):
+                retry_after = e.__cause__.retry_after
+            else:
+                logger.warning("sim  op=%s  ReservationFailed: %s", op, e)
         except Exception as e:
             logger.warning("sim  op=%s  error=%s: %s", op, type(e).__name__, e)
+
+        while retry_after is not None and not stop_event.is_set():
+            wait = min(10.0, retry_after)
+            logger.warning(
+                "sim  op=%s  rate-limited (retryAfter=%.1fs); retrying in %.0fs",
+                op, retry_after, wait,
+            )
+            if stop_event.wait(wait):
+                break
+            retry_after = None
+            try:
+                _run_op()
+            except ReservationFailedError as e:
+                if isinstance(e.__cause__, RateLimitedError):
+                    retry_after = e.__cause__.retry_after
+                else:
+                    logger.warning("sim  op=%s  ReservationFailed on retry: %s", op, e)
+            except Exception as e:
+                logger.warning("sim  op=%s  error=%s: %s", op, type(e).__name__, e)
 
         ops_counter[0] += 1
 
@@ -225,13 +254,45 @@ def run_showcase_sim(
         else:
             op = random.choice(['add', 'remove'])
 
+        def _showcase_op_with_retry(label: str, criteria_fn):
+            retry_after = None
+            try:
+                storage.handle_transfer_requests(criteria_fn())
+            except ReservationFailedError as e:
+                if isinstance(e.__cause__, RateLimitedError):
+                    retry_after = e.__cause__.retry_after
+                else:
+                    logger.warning("showcase  %s  ReservationFailed: %s", label, e)
+            except Exception as e:
+                logger.warning("showcase  %s  error=%s: %s", label, type(e).__name__, e)
+
+            while retry_after is not None and not stop_event.is_set():
+                wait = min(10.0, retry_after)
+                logger.warning(
+                    "showcase  %s  rate-limited (retryAfter=%.1fs); retrying in %.0fs",
+                    label, retry_after, wait,
+                )
+                if stop_event.wait(wait):
+                    break
+                retry_after = None
+                try:
+                    storage.handle_transfer_requests(criteria_fn())
+                except ReservationFailedError as e:
+                    if isinstance(e.__cause__, RateLimitedError):
+                        retry_after = e.__cause__.retry_after
+                    else:
+                        logger.warning("showcase  %s  ReservationFailed on retry: %s", label, e)
+                except Exception as e:
+                    logger.warning("showcase  %s  error=%s: %s", label, type(e).__name__, e)
+
         if op == 'add':
             for loc in storage.Locations.values():
                 if not loc.get_addable_positions():
                     continue
                 cid = _new_cid()
-                try:
-                    storage.handle_transfer_requests([
+                _showcase_op_with_retry(
+                    label=f"add loc={loc.Id}",
+                    criteria_fn=lambda loc=loc, cid=cid: [
                         TransferRequestCriteria(
                             new_container=dcs.Container(id=cid),
                             dest_loc_query_args=LocationQualifier(
@@ -243,9 +304,8 @@ def run_showcase_sim(
                                 has_addable_position=True,
                             ),
                         )
-                    ])
-                except Exception as e:
-                    logger.warning("showcase  add  loc=%s  error=%s: %s", loc.Id, type(e).__name__, e)
+                    ],
+                )
         else:
             for loc in storage.Locations.values():
                 removable = loc.get_removable_positions()
@@ -254,17 +314,17 @@ def run_showcase_sim(
                 container_id = loc.ContainerPositions.get(random.choice(removable))
                 if container_id is None:
                     continue
-                try:
-                    storage.handle_transfer_requests([
+                _showcase_op_with_retry(
+                    label=f"remove loc={loc.Id}",
+                    criteria_fn=lambda container_id=container_id: [
                         TransferRequestCriteria(
                             container_query_args=ContainerQualifier(
                                 pattern=PatternMatchQualifier(id=container_id)
                             ),
                             delete_container_on_transfer=True,
                         )
-                    ])
-                except Exception as e:
-                    logger.warning("showcase  remove  loc=%s  error=%s: %s", loc.Id, type(e).__name__, e)
+                    ],
+                )
 
         ops_counter[0] += 1
 

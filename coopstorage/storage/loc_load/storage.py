@@ -15,7 +15,7 @@ from cooptools.protocols import UniqueIdentifier
 from coopstorage.storage.loc_load.location import Location
 import coopstorage.storage.loc_load.qualifiers as qs
 from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria, TransferRequest
-from coopstorage.storage.loc_load.reservation_provider import ReservationProvider, PassthroughReservationProvider
+from coopstorage.storage.loc_load.reservation_provider import ReservationProvider, PassthroughReservationProvider, ReservationFailedError, RateLimitedError
 import cooptools.common as comm
 from coopstorage.storage.loc_load import data as data
 from cooptools.qualifiers import PatternMatchQualifier, WhiteBlackListQualifier
@@ -449,7 +449,25 @@ class Storage:
 
                 # Reserve before unblocking — dest_loc is recorded in TransferRequestsData,
                 # so _unblock's reserved=False dest filter will naturally exclude it.
-                request = request.try_acquire_reservations(self._reservation_provider)
+                try:
+                    request = request.acquire_reservations(self._reservation_provider)
+                except ReservationFailedError as e:
+                    if isinstance(e.__cause__, RateLimitedError):
+                        logger.error(
+                            f"Reservation rate-limited (retryAfter={e.__cause__.retry_after:.1f}s) — "
+                            f"aborting transfer request batch"
+                        )
+                        raise
+
+                    #TODO: Decide what to do with the transfer request. Options include:
+                    # - Skip it and continue with the rest of the batch (current behavior)
+                    # - Retry with exponential backoff until it succeeds or a max retry count is reached
+                    # - Fail the entire batch immediately (probably not ideal)
+                    # - Queue it for later processing by a background worker that handles retries
+
+                    #for now, we'll just log the error and skip the request
+                    logger.error(f"Reservation failed — skipping request: {e}")
+                    continue
                 self._data_store.TransferRequestsData.add([request])
                 self._data_store.ContainersData.add_or_update(containers=[request.container])
                 pub.sendMessage(StorageTopic.TRANSFER_REQUEST_ADDED.value, payload={
