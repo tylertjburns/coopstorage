@@ -7,6 +7,25 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+class _RateLimitedError(Exception):
+    """HTTP-transport-level signal from _HttpReservationBase when 429 retryAfter exceeds max_retry_wait."""
+    def __init__(self, retry_after: float):
+        self.retry_after = retry_after
+        super().__init__(f"Rate limited; retryAfter={retry_after:.1f}s exceeds max_retry_wait")
+
+
+class ReservationFailedError(Exception):
+    """Raised by reserve/unreserve when the operation cannot complete due to rate limiting."""
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
+class ReservationCheckFailedError(Exception):
+    """Raised by is_reserved/get_reserved_ids when the check cannot complete due to rate limiting."""
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
 class ReservationProvider(Protocol):
     def reserve(self, resource: str, requester: str, resource_type: str = None) -> Optional[str]: ...
     def unreserve(self, resource: str, requester: str, token: str) -> bool: ...
@@ -37,8 +56,9 @@ class _HttpReservationBase:
     and may override _on_auth_failure() to invalidate cached tokens on 401.
     """
 
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, max_retry_wait: float = 10.0):
         self._base_url = base_url.rstrip('/')
+        self._max_retry_wait = max_retry_wait
 
     def _make_headers(self) -> dict:
         raise NotImplementedError
@@ -77,6 +97,12 @@ class _HttpReservationBase:
             except Exception:
                 pass
             retry_after = float(body_data.get('retryAfter') or resp.headers.get('Retry-After', 1))
+            if retry_after > self._max_retry_wait:
+                logger.error(
+                    f"429 Too Many Requests on POST {path} — retryAfter={retry_after:.1f}s "
+                    f"exceeds max_retry_wait={self._max_retry_wait:.1f}s; failing fast"
+                )
+                raise _RateLimitedError(retry_after)
             retry_at = time.strftime('%H:%M:%S', time.localtime(time.time() + retry_after))
             logger.warning(
                 f"429 Too Many Requests on POST {path} — retryAfter={retry_after:.1f}s; retrying at {retry_at}"
@@ -128,6 +154,12 @@ class _HttpReservationBase:
             except Exception:
                 pass
             retry_after = float(body_data.get('retryAfter') or resp.headers.get('Retry-After', 1))
+            if retry_after > self._max_retry_wait:
+                logger.error(
+                    f"429 Too Many Requests on GET {path} — retryAfter={retry_after:.1f}s "
+                    f"exceeds max_retry_wait={self._max_retry_wait:.1f}s; failing fast"
+                )
+                raise _RateLimitedError(retry_after)
             retry_at = time.strftime('%H:%M:%S', time.localtime(time.time() + retry_after))
             logger.warning(
                 f"429 Too Many Requests on GET {path} — retryAfter={retry_after:.1f}s; retrying at {retry_at}"
@@ -139,9 +171,14 @@ class _HttpReservationBase:
         return resp.json()
 
     def reserve(self, resource: str, requester: str, resource_type: str = None) -> Optional[str]:
-        results = self._post('/api/v1/Reservation/reserve', [
-            {'requester': requester, 'resource': resource, 'resourceType': resource_type or 'storage'}
-        ])
+        try:
+            results = self._post('/api/v1/Reservation/reserve', [
+                {'requester': requester, 'resource': resource, 'resourceType': resource_type or 'storage'}
+            ])
+        except _RateLimitedError as exc:
+            raise ReservationFailedError(
+                f"reserve rate-limited (retryAfter={exc.retry_after:.1f}s): resource={resource} requester={requester}"
+            ) from exc
         if results and results[0].get('status') == 'SUCCESS':
             token = results[0].get('releaseToken')
             if token is None:
@@ -159,9 +196,14 @@ class _HttpReservationBase:
         return None
 
     def unreserve(self, resource: str, requester: str, token: str) -> bool:
-        results = self._post('/api/v1/Reservation/unreserve', [
-            {'requester': requester, 'resource': resource, 'releaseToken': token}
-        ])
+        try:
+            results = self._post('/api/v1/Reservation/unreserve', [
+                {'requester': requester, 'resource': resource, 'releaseToken': token}
+            ])
+        except _RateLimitedError as exc:
+            raise ReservationFailedError(
+                f"unreserve rate-limited (retryAfter={exc.retry_after:.1f}s): resource={resource} requester={requester}"
+            ) from exc
         success = bool(results and results[0].get('status') == 'SUCCESS')
         if not success:
             reason = results[0].get('explanation') if results else 'no response'
@@ -174,7 +216,12 @@ class _HttpReservationBase:
     def is_reserved(self, resource: str) -> bool:
         t0 = time.monotonic()
         logger.debug(f"is_reserved: checking resource={resource}")
-        result = self._get(f'/api/v1/Reservation/check/{resource}')
+        try:
+            result = self._get(f'/api/v1/Reservation/check/{resource}')
+        except _RateLimitedError as exc:
+            raise ReservationCheckFailedError(
+                f"is_reserved rate-limited (retryAfter={exc.retry_after:.1f}s): resource={resource}"
+            ) from exc
         elapsed = time.monotonic() - t0
         is_res = result.get('isReserved', False)
         logger.debug(f"is_reserved: resource={resource} → {is_res} ({elapsed:.3f}s)")
@@ -186,7 +233,12 @@ class _HttpReservationBase:
             return set()
         t0 = time.monotonic()
         logger.debug(f"get_reserved_ids: checking {len(ids)} IDs")
-        results = self._post('/api/v1/Reservation/check', {'resources': ids})
+        try:
+            results = self._post('/api/v1/Reservation/check', {'resources': ids})
+        except _RateLimitedError as exc:
+            raise ReservationCheckFailedError(
+                f"get_reserved_ids rate-limited (retryAfter={exc.retry_after:.1f}s): {len(ids)} IDs"
+            ) from exc
         elapsed = time.monotonic() - t0
         reserved = {r['resource'] for r in results if r.get('isReserved')}
         logger.debug(f"get_reserved_ids: {len(ids)} IDs → {len(reserved)} reserved in {elapsed:.3f}s")
@@ -196,8 +248,8 @@ class _HttpReservationBase:
 class ApiKeyReservationProvider(_HttpReservationBase):
     """Authenticates via X-Api-Key header on every request."""
 
-    def __init__(self, base_url: str, api_key: str):
-        super().__init__(base_url)
+    def __init__(self, base_url: str, api_key: str, max_retry_wait: float = 10.0):
+        super().__init__(base_url, max_retry_wait=max_retry_wait)
         self._api_key = api_key
 
     def _make_headers(self) -> dict:
@@ -214,8 +266,8 @@ class JwtExchangeReservationProvider(_HttpReservationBase):
 
     _EXPIRY_BUFFER_SECONDS = 30
 
-    def __init__(self, base_url: str, api_key: str):
-        super().__init__(base_url)
+    def __init__(self, base_url: str, api_key: str, max_retry_wait: float = 10.0):
+        super().__init__(base_url, max_retry_wait=max_retry_wait)
         self._api_key = api_key
         self._token: Optional[str] = None
         self._token_expires_at: float = 0.0
