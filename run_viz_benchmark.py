@@ -157,7 +157,7 @@ def main():
                 channel_processor=cps.AllAvailableChannelProcessor(),
                 capacity=1,
             ),
-            locations_per_bay=1,
+            locations_per_bay=2,
             shelves=3,
             bay_height=6.0,
             inter_bay_spacing=2.0,
@@ -185,7 +185,7 @@ def main():
                     shelf_height=5.0,
                     inter_bay_spacing=1.0,
                     aisle_width=15.0,
-                    origin=(200.0, 0.0, 0.0),
+                    origin=(300.0, 0.0, 0.0),
                     projection=ZoneProjection(rotation_z=math.pi / 2),
                 ),
             }
