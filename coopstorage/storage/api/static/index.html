@@ -411,8 +411,8 @@
           <select id="viz-hover-level-mid">
             <option value="">None</option>
             <option value="zone">Zone</option>
-            <option value="aisle">Aisle</option>
-            <option value="row" selected>Row</option>
+            <option value="aisle" selected>Aisle</option>
+            <option value="row">Row</option>
             <option value="bay">Bay</option>
             <option value="shelf">Shelf</option>
             <option value="loc">Location</option>
@@ -633,7 +633,7 @@ const vizConfig = {
     },
     mid: {
       wireframeLevels:     ['aisle'],
-      hoverLevel:          'row',
+      hoverLevel:          'aisle',
       hoverDetail:         'dots',
       hoverWireframeLevel: 'bay',
       locsDisplay:         'dots',
