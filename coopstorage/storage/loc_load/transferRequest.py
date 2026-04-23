@@ -5,7 +5,7 @@ from coopstorage.storage.loc_load.location import Location
 import logging
 from pprint import pformat
 from typing import Callable, Optional, Self, Dict
-from coopstorage.storage.loc_load.reservation_provider import ReservationProvider
+from coopstorage.storage.loc_load.reservation_provider import ReservationProvider, ReservationFailedError
 from pubsub import pub
 from coopstorage.enums import StorageTopic
 
@@ -59,23 +59,47 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
     def release_reservations(self, reservation_provider: ReservationProvider) -> None:
         requester = str(self.get_id())
         if self.container_reservation_token is not None:
-            reservation_provider.unreserve(str(self.container.id), requester, token=self.container_reservation_token)
-            pub.sendMessage(StorageTopic.CONTAINER_UNRESERVED.value, payload={
-                'container_id': str(self.container.id),
-                'transfer_request_id': requester,
-            })
+            try:
+                released = reservation_provider.unreserve(str(self.container.id), requester, token=self.container_reservation_token)
+            except ReservationFailedError as exc:
+                logger.error(f"Container unreserve failed (rate-limited): container={self.container.id} requester={requester} — {exc}")
+                released = False
+            if released:
+                pub.sendMessage(StorageTopic.CONTAINER_UNRESERVED.value, payload={
+                    'container_id': str(self.container.id),
+                    'transfer_request_id': requester,
+                })
+            else:
+                logger.error(
+                    f"Container unreserve returned False — skipping CONTAINER_UNRESERVED event: "
+                    f"container={self.container.id} requester={requester}"
+                )
         if self.destination_reservation_token is not None:
-            reservation_provider.unreserve(str(self.dest_loc.Id), requester, token=self.destination_reservation_token)
-            pub.sendMessage(StorageTopic.LOCATION_UNRESERVED.value, payload={
-                'location_id': str(self.dest_loc.Id),
-                'transfer_request_id': requester,
-            })
+            try:
+                released = reservation_provider.unreserve(str(self.dest_loc.Id), requester, token=self.destination_reservation_token)
+            except ReservationFailedError as exc:
+                logger.error(f"Dest unreserve failed (rate-limited): dest_loc={self.dest_loc.Id} requester={requester} — {exc}")
+                released = False
+            if released:
+                pub.sendMessage(StorageTopic.LOCATION_UNRESERVED.value, payload={
+                    'location_id': str(self.dest_loc.Id),
+                    'transfer_request_id': requester,
+                })
+            else:
+                logger.error(
+                    f"Dest unreserve returned False — skipping LOCATION_UNRESERVED event: "
+                    f"dest_loc={self.dest_loc.Id} requester={requester}"
+                )
 
     def try_acquire_reservations(self, reservation_provider: ReservationProvider) -> 'TransferRequest':
         requester = str(self.get_id())
         container_id = str(self.container.id)
         logger.debug(f"Reserving container={container_id} requester={requester}")
-        container_token = reservation_provider.reserve(container_id, requester, resource_type="container")
+        try:
+            container_token = reservation_provider.reserve(container_id, requester, resource_type="container")
+        except ReservationFailedError as exc:
+            logger.error(f"Container reservation failed: container={container_id} requester={requester} — {exc}")
+            container_token = None
         if container_token is not None:
             logger.debug(f"Container reservation OK: container={container_id} token={container_token}")
             pub.sendMessage(StorageTopic.CONTAINER_RESERVED.value, payload={
@@ -93,7 +117,11 @@ class TransferRequest(dcs.BaseIdentifiedDataClass):
         if self.dest_loc is not None:
             dest_id = str(self.dest_loc.Id)
             logger.debug(f"Reserving dest_loc={dest_id} requester={requester}")
-            dest_token = reservation_provider.reserve(dest_id, requester, resource_type="location")
+            try:
+                dest_token = reservation_provider.reserve(dest_id, requester, resource_type="location")
+            except ReservationFailedError as exc:
+                logger.error(f"Dest reservation failed: dest_loc={dest_id} requester={requester} — {exc}")
+                dest_token = None
             if dest_token is not None:
                 logger.debug(f"Dest reservation OK: dest_loc={dest_id} token={dest_token}")
                 pub.sendMessage(StorageTopic.LOCATION_RESERVED.value, payload={
