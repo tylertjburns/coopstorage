@@ -455,7 +455,7 @@ class Storage:
                     if isinstance(e.__cause__, RateLimitedError):
                         logger.error(
                             f"Reservation rate-limited (retryAfter={e.__cause__.retry_after:.1f}s) — "
-                            f"aborting transfer request batch"
+                            f"abandoning transfer request batch"
                         )
                         raise
 

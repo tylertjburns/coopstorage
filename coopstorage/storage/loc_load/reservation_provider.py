@@ -67,6 +67,12 @@ class _HttpReservationBase:
         """Called when a 401 Unauthorized response is received. Override to invalidate cached credentials."""
         pass
 
+    def _parse_json_response(self, resp, path: str, method: str, empty_default):
+        if not resp.content:
+            logger.warning("%s %s returned HTTP %s with empty body", method, path, resp.status_code)
+            return empty_default
+        return resp.json()
+
     def _post(self, path: str, body, *, _re_auth: bool = True, attempts: int = 3) -> list:
         try:
             headers = self._make_headers()
@@ -122,7 +128,7 @@ class _HttpReservationBase:
             raise requests.HTTPError(f"POST {path} failed: {resp.status_code}")
 
         resp.raise_for_status()
-        return resp.json()
+        return self._parse_json_response(resp, path, "POST", [])
 
     def _get(self, path: str, *, _re_auth: bool = True) -> dict:
         try:
@@ -168,7 +174,7 @@ class _HttpReservationBase:
             return self._get(path, _re_auth=_re_auth)
 
         resp.raise_for_status()
-        return resp.json()
+        return self._parse_json_response(resp, path, "GET", {})
 
     def reserve(self, resource: str, requester: str, resource_type: str = None) -> Optional[str]:
         try:
