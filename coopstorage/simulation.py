@@ -17,7 +17,7 @@ from typing import Callable, Optional
 import coopstorage.storage.loc_load.dcs as dcs
 import coopstorage.storage.loc_load.evaluators as evaluators
 from coopstorage.storage.loc_load.qualifiers import ContainerQualifier, LocationQualifier
-from coopstorage.storage.loc_load.reservation_provider import ReservationFailedError, RateLimitedError
+from coopstorage.storage.loc_load.reservation_provider import ReservationFailedError, RateLimitedError, AuthError
 from coopstorage.storage.loc_load.storage import Storage
 from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria
 from cooptools.qualifiers import PatternMatchQualifier, WhiteBlackListQualifier
@@ -152,6 +152,8 @@ def run_simulation(
         except ReservationFailedError as e:
             if isinstance(e.__cause__, RateLimitedError):
                 retry_after = e.__cause__.retry_after
+            elif isinstance(e.__cause__, AuthError):
+                retry_after = 5.0
             else:
                 logger.warning("sim  op=%s  ReservationFailed: %s", op, e)
         except Exception as e:
@@ -160,7 +162,7 @@ def run_simulation(
         while retry_after is not None and not stop_event.is_set():
             wait = min(10.0, retry_after)
             logger.warning(
-                "sim  op=%s  rate-limited (retryAfter=%.1fs); retrying in %.0fs",
+                "sim  op=%s  disrupted (retryAfter=%.1fs); retrying in %.0fs",
                 op, retry_after, wait,
             )
             if stop_event.wait(wait):
@@ -171,6 +173,8 @@ def run_simulation(
             except ReservationFailedError as e:
                 if isinstance(e.__cause__, RateLimitedError):
                     retry_after = e.__cause__.retry_after
+                elif isinstance(e.__cause__, AuthError):
+                    retry_after = 5.0
                 else:
                     logger.warning("sim  op=%s  ReservationFailed on retry: %s", op, e)
             except Exception as e:

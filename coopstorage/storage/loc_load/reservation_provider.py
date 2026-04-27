@@ -14,6 +14,13 @@ class RateLimitedError(Exception):
         super().__init__(f"Rate limited; retryAfter={retry_after:.1f}s exceeds max_retry_wait")
 
 
+class AuthError(Exception):
+    """Raised when authentication fails with a non-transient error (e.g. 403 Forbidden)."""
+    def __init__(self, status_code: int, message: str):
+        self.status_code = status_code
+        super().__init__(f"Auth failed ({status_code}): {message}")
+
+
 class ReservationFailedError(Exception):
     """Raised by reserve/unreserve when the operation cannot complete due to rate limiting."""
     def __init__(self, message: str):
@@ -181,9 +188,9 @@ class _HttpReservationBase:
             results = self._post('/api/v1/Reservation/reserve', [
                 {'requester': requester, 'resource': resource, 'resourceType': resource_type or 'storage'}
             ])
-        except RateLimitedError as exc:
+        except (RateLimitedError, AuthError) as exc:
             raise ReservationFailedError(
-                f"reserve rate-limited (retryAfter={exc.retry_after:.1f}s): resource={resource} requester={requester}"
+                f"reserve auth error: {exc}: resource={resource} requester={requester}"
             ) from exc
         if results and results[0].get('status') == 'SUCCESS':
             token = results[0].get('releaseToken')
@@ -206,9 +213,9 @@ class _HttpReservationBase:
             results = self._post('/api/v1/Reservation/unreserve', [
                 {'requester': requester, 'resource': resource, 'releaseToken': token}
             ])
-        except RateLimitedError as exc:
+        except (RateLimitedError, AuthError) as exc:
             raise ReservationFailedError(
-                f"unreserve rate-limited (retryAfter={exc.retry_after:.1f}s): resource={resource} requester={requester}"
+                f"unreserve auth error: {exc}: resource={resource} requester={requester}"
             ) from exc
         success = bool(results and results[0].get('status') == 'SUCCESS')
         if not success:
@@ -224,9 +231,9 @@ class _HttpReservationBase:
         logger.debug(f"is_reserved: checking resource={resource}")
         try:
             result = self._get(f'/api/v1/Reservation/check/{resource}')
-        except RateLimitedError as exc:
+        except (RateLimitedError, AuthError) as exc:
             raise ReservationCheckFailedError(
-                f"is_reserved rate-limited (retryAfter={exc.retry_after:.1f}s): resource={resource}"
+                f"is_reserved auth error: {exc}: resource={resource}"
             ) from exc
         elapsed = time.monotonic() - t0
         is_res = result.get('isReserved', False)
@@ -241,9 +248,9 @@ class _HttpReservationBase:
         logger.debug(f"get_reserved_ids: checking {len(ids)} IDs")
         try:
             results = self._post('/api/v1/Reservation/check', {'resources': ids})
-        except RateLimitedError as exc:
+        except (RateLimitedError, AuthError) as exc:
             raise ReservationCheckFailedError(
-                f"get_reserved_ids rate-limited (retryAfter={exc.retry_after:.1f}s): {len(ids)} IDs"
+                f"get_reserved_ids auth error: {exc}: {len(ids)} IDs"
             ) from exc
         elapsed = time.monotonic() - t0
         reserved = {r['resource'] for r in results if r.get('isReserved')}
@@ -277,6 +284,8 @@ class JwtExchangeReservationProvider(_HttpReservationBase):
         self._api_key = api_key
         self._token: Optional[str] = None
         self._token_expires_at: float = 0.0
+        self._auth_backoff_until: float = 0.0
+        self._auth_forbidden: bool = False
         self._token_lock = threading.Lock()
 
     def _exchange_token(self):
@@ -285,6 +294,24 @@ class JwtExchangeReservationProvider(_HttpReservationBase):
                 f"{self._base_url}/auth/token",
                 headers={'X-Api-Key': self._api_key},
             )
+            if resp.status_code == 429:
+                body_data = {}
+                try:
+                    body_data = resp.json()
+                except Exception:
+                    pass
+                retry_after = float(body_data.get('retryAfter') or resp.headers.get('Retry-After', 5))
+                self._auth_backoff_until = time.monotonic() + retry_after
+                logger.warning(
+                    f"429 on auth/token — backing off {retry_after:.1f}s before next attempt"
+                )
+                raise RateLimitedError(retry_after)
+            if 400 <= resp.status_code < 500:
+                self._auth_forbidden = True
+                logger.error(
+                    f"{resp.status_code} {resp.reason} on auth/token — check API key/URL configuration"
+                )
+                raise AuthError(resp.status_code, f"{resp.reason} — check API key/URL configuration")
             resp.raise_for_status()
         except requests.exceptions.ConnectionError:
             logger.warning(
@@ -298,7 +325,12 @@ class JwtExchangeReservationProvider(_HttpReservationBase):
 
     def _get_token(self) -> str:
         with self._token_lock:
-            if self._token is None or time.monotonic() >= self._token_expires_at:
+            if self._auth_forbidden:
+                raise AuthError(0, "Auth previously failed — check API key/URL configuration")
+            now = time.monotonic()
+            if now < self._auth_backoff_until:
+                raise RateLimitedError(self._auth_backoff_until - now)
+            if self._token is None or now >= self._token_expires_at:
                 self._exchange_token()
             return self._token
 
