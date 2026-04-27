@@ -15,7 +15,7 @@ from cooptools.protocols import UniqueIdentifier
 from coopstorage.storage.loc_load.location import Location
 import coopstorage.storage.loc_load.qualifiers as qs
 from coopstorage.storage.loc_load.transferRequest import TransferRequestCriteria, TransferRequest
-from coopstorage.storage.loc_load.reservation_provider import ReservationProvider, PassthroughReservationProvider, ReservationFailedError, RateLimitedError
+from coopstorage.storage.loc_load.reservation_provider import ReservationProvider, PassthroughReservationProvider, ReservationFailedError, ReservationCheckFailedError, RateLimitedError, AuthError
 import cooptools.common as comm
 from coopstorage.storage.loc_load import data as data
 from cooptools.qualifiers import PatternMatchQualifier, WhiteBlackListQualifier
@@ -458,6 +458,12 @@ class Storage:
                             f"abandoning transfer request batch"
                         )
                         raise
+                    if isinstance(e.__cause__, AuthError):
+                        logger.error(
+                            f"Reservation auth forbidden (status={e.__cause__.status_code}) — "
+                            f"abandoning transfer request batch"
+                        )
+                        raise
 
                     #TODO: Decide what to do with the transfer request. Options include:
                     # - Skip it and continue with the rest of the batch (current behavior)
@@ -607,7 +613,11 @@ class Storage:
         """Return the set of location IDs that currently have an active reservation."""
         with self._lock:
             ids = [str(k) for k in self._data_store.LocationsData.get().keys()]
-            return self._reservation_provider.get_reserved_ids(ids)
+            try:
+                return self._reservation_provider.get_reserved_ids(ids)
+            except ReservationCheckFailedError as e:
+                logger.warning(f"get_reserved_location_ids failed — returning empty set: {e}")
+                return set()
 
     def content_at_location(self, loc_id: UniqueIdentifier) -> List[dcs.ContainerContent]:
         """All ContainerContent across every container at a location, aggregated by (resource, uom)."""
