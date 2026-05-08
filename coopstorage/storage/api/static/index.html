@@ -81,14 +81,6 @@
       font-size: 11px; color: #8b949e;
     }
 
-    #tooltip {
-      position: fixed; display: none;
-      background: #161b22; border: 1px solid #30363d; border-radius: 6px;
-      padding: 10px 14px; font-size: 11px; pointer-events: none;
-      max-width: 480px; line-height: 1.7; z-index: 10;
-    }
-    #tooltip strong { color: #e6edf3; }
-    #tooltip em { color: #58a6ff; font-style: normal; }
 
     #legend {
       position: fixed; bottom: 12px; right: 12px;
@@ -195,6 +187,7 @@
     .tr-ready-yes    { background: #3fb950; }
     .tr-ready-no     { background: #e3b341; }
   </style>
+  <link rel="stylesheet" href="/static/tooltip-system.css">
 </head>
 <body>
 
@@ -573,7 +566,7 @@
 </div>
 
 <div id="status">Connecting…</div>
-<div id="tooltip"></div>
+
 <div id="uom-legend"><div id="uom-legend-title">UOM</div></div>
 
 <div id="legend">
@@ -603,6 +596,8 @@
   </div>
 </div>
 
+<script src="/static/tooltip-system.js"></script>
+<script src="/static/tooltip-registrations.js"></script>
 <script>
 // ─── State ────────────────────────────────────────────────────────────────────
 // locations: id → { id, coords:[x,y,z], meta:{dims,channel_processor,capacity,...},
@@ -1422,7 +1417,6 @@ function _paintBackground(tc) {
 const canvas  = document.getElementById('canvas');
 let   ctx     = canvas.getContext('2d');
 const statusEl  = document.getElementById('status');
-const tooltipEl = document.getElementById('tooltip');
 let W = 0, H = 0;
 let renderQueued    = false;
 let _renderThrottle = null;
@@ -1515,7 +1509,7 @@ function fitView() {
 function forceRender() {
   if (!renderQueued) {
     renderQueued = true;
-    requestAnimationFrame(() => { renderQueued = false; render(); });
+    requestAnimationFrame(() => { renderQueued = false; render(); TooltipManager.refreshLeaderLines(); });
   }
 }
 
@@ -2168,16 +2162,10 @@ function _commitHoverKey(key) {
 }
 
 canvas.addEventListener('mousemove', e => {
-  if (dragging) { tooltipEl.style.display = 'none'; return; }
+  if (dragging) return;
 
-  // Zone origin dot hover takes priority over location hit test
   const zoneOriginHit = _hitTestZoneOrigin(e.clientX, e.clientY);
   if (zoneOriginHit) {
-    tooltipEl.innerHTML = `<strong>Zone origin</strong> <em>${zoneOriginHit.key}</em><br>` +
-      `<em>coords</em> [${zoneOriginHit.wx.toFixed(2)}, ${zoneOriginHit.wy.toFixed(2)}, ${zoneOriginHit.wz.toFixed(2)}]`;
-    tooltipEl.style.display = 'block';
-    tooltipEl.style.left = (e.clientX + 14) + 'px';
-    tooltipEl.style.top  = (e.clientY + 14) + 'px';
     if (hoveredAisleKey !== null || hoveredLocId !== null) {
       hoveredAisleKey = null; hoveredLocId = null; forceRender();
     }
@@ -2186,7 +2174,6 @@ canvas.addEventListener('mousemove', e => {
 
   const hit = hitTest(e.clientX, e.clientY);
   if (!hit) {
-    tooltipEl.style.display = 'none';
     clearTimeout(_aisleDebounceTimer);
     _pendingAisleKey = null;
     const needsRender = hoveredAisleKey !== null || hoveredLocId !== null;
@@ -2203,36 +2190,31 @@ canvas.addEventListener('mousemove', e => {
     setTimeout(() => _prewarmGroup(newKey), 0);
     _aisleDebounceTimer = setTimeout(() => _commitHoverKey(newKey), 25);
   }
-
-  const used = hit.slots.filter(s => s !== null).length;
-  let html = `<strong>${hit.id}</strong><br>`;
-  html += `<em>coords</em> [${hit.coords.map(v => v.toFixed(1)).join(', ')}]<br>`;
-  html += `<em>processor</em> ${hit.meta.channel_processor}<br>`;
-  html += `<em>capacity</em> ${used} / ${hit.slots.length}<br>`;
-
-  const cEntries = Object.entries(hit.containers);
-  if (cEntries.length > 0) {
-    html += `<br><em>containers</em><br>`;
-    for (const [cid, c] of cEntries) {
-      const label = c.contents.length > 0
-        ? c.contents.map(cc => `${cc.qty}×${cc.uom} ${cc.resource}`).join(', ')
-        : '(empty)';
-      html += `&nbsp;${cid} ${label}<br>`;
-    }
-  }
-
-  tooltipEl.innerHTML = html;
-  tooltipEl.style.display = 'block';
-  tooltipEl.style.left = (e.clientX + 14) + 'px';
-  tooltipEl.style.top  = (e.clientY + 14) + 'px';
 });
 canvas.addEventListener('mouseleave', () => {
-  tooltipEl.style.display = 'none';
   const needsRender = hoveredAisleKey !== null || hoveredLocId !== null;
   hoveredAisleKey = null;
   hoveredLocId    = null;
   if (needsRender) forceRender();
 });
+
+// ─── Tooltip system ───────────────────────────────────────────────────────────
+const _canvasTip = new CanvasTooltipAdapter(canvas, (cx, cy) => {
+  const zoneHit = _hitTestZoneOrigin(cx, cy);
+  if (zoneHit) return {
+    id:  'zone-origin',
+    ctx: { _title: `Zone ${zoneHit.key}`, _zoneHit: zoneHit, _entityId: `zone:${zoneHit.key}` },
+    anchorFn: () => { const [sx, sy] = project(zoneHit.wx, zoneHit.wy, zoneHit.wz); return new DOMRect(sx, sy, 0, 0); }
+  };
+  const locHit = hitTest(cx, cy);
+  if (!locHit) return null;
+  return {
+    id:  'location',
+    ctx: { _loc: locHit, _title: locHit.id, _entityId: locHit.id },
+    anchorFn: () => { const [sx, sy] = _projectLocCentre(locHit); return new DOMRect(sx, sy, 0, 0); }
+  };
+});
+_canvasTip.attach();
 
 // ─── Hit-test spatial grid ────────────────────────────────────────────────────
 // Screen-space grid: loc visual centres bucketed into HIT_CELL-px cells.
