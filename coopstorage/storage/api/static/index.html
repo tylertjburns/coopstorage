@@ -605,6 +605,7 @@
 //                   tree_path:{zone,aisle,...} }
 const locations        = new Map();
 const containers       = new Map();   // flat container registry
+window.TooltipDataStore = { locations, containers };
 const transferRequests = new Map();   // transfer_request_id → { transfer_request_id, container_id, source_loc_id, dest_loc_id }
 
 // ─── Viz config ───────────────────────────────────────────────────────────────
