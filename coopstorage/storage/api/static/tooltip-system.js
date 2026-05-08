@@ -82,13 +82,20 @@
     addLocked(tooltip)    { this._locked.add(tooltip); },
     removeLocked(tooltip) { this._locked.delete(tooltip); },
 
+    refreshLeaderLines() {
+      if (RootContainer._activeChild) RootContainer._activeChild._updateLeaderLine?.();
+      for (const t of this._locked) t._updateLeaderLine?.();
+    },
+
     collapseAll() {
       RootContainer.dismissChild();
       for (const t of [...this._locked]) t.close();
     }
   };
 
-  document.addEventListener('click',   (e) => { if (!e.target.closest('.ts-tooltip')) TooltipManager.collapseAll(); });
+  // Click outside dismisses the unlocked hover chain only — locked tooltips survive.
+  // Escape collapses everything including locked.
+  document.addEventListener('click',   (e) => { if (!e.target.closest('.ts-tooltip')) RootContainer.dismissChild(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') TooltipManager.collapseAll(); });
 
 
@@ -96,7 +103,7 @@
   // Also acts as a TooltipContainer so child tooltips can nest inside it.
 
   class Tooltip {
-    constructor({ id, ctx, anchorRect, parentContainer }) {
+    constructor({ id, ctx, anchorRect, anchorFn, parentContainer }) {
       this.id = id;
       this.ctx = ctx;
       this.anchorRect = anchorRect;
@@ -109,6 +116,11 @@
       this._progressEl = null;
       this._progressFill = null;
       this._dismissTimer = null;
+      this._anchorFn = anchorFn ?? null;  // optional () => DOMRect for dynamic anchors
+      this._leaderSvg = null;
+      this._leaderLine = null;
+      this._leaderLineFrozen = false;
+      this._isDragging = false;
     }
 
     async mount() {
@@ -150,6 +162,9 @@
       btns.append(this._progressEl, this._lockBtn);
       header.append(title, btns);
 
+      // Drag: only active when locked; ignored on button clicks
+      header.addEventListener('mousedown', (e) => this._startDrag(e));
+
       const body = document.createElement('div');
       body.className = 'ts-body';
       if (content === null)                body.innerHTML = '<span class="ts-empty">No content available.</span>';
@@ -168,12 +183,28 @@
       // On leave: schedule (don't immediately execute) so mouse transit to a
       // child tooltip can cancel before the timer fires.
       this._el.addEventListener('mouseleave', () => {
+        if (this._isDragging) return;
         this.scheduleDismiss();
         if (!this.locked) this.parentContainer.scheduleDismiss?.();
       });
 
-      TooltipManager.getRootEl().appendChild(this._el);
+      // Leader line SVG — drawn from anchor to tooltip edge
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible;';
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('stroke', '#58a6ff');
+      line.setAttribute('stroke-width', '1.5');
+      line.setAttribute('stroke-dasharray', '5,4');
+      line.setAttribute('opacity', '0.5');
+      svg.appendChild(line);
+      this._leaderSvg = svg;
+      this._leaderLine = line;
+
+      const root = TooltipManager.getRootEl();
+      root.appendChild(svg);       // SVG first so tooltip renders on top
+      root.appendChild(this._el);
       this._position();
+      this._updateLeaderLine();
       this._attachTextTriggers();
       // Stop any countdown on the parent that was waiting for this child to appear.
       if (typeof this.parentContainer.stopProgress === 'function') this.parentContainer.stopProgress();
@@ -199,6 +230,52 @@
       el.style.left = `${left}px`;
       el.style.top  = `${top}px`;
       el.style.visibility = 'visible';
+    }
+
+    _hideLeaderLine() {
+      this._leaderLineFrozen = true;
+      if (this._leaderSvg) this._leaderSvg.style.display = 'none';
+    }
+
+    _updateLeaderLine() {
+      if (!this._leaderLine || !this._el || this._leaderLineFrozen) return;
+      const anchor = this._anchorFn ? this._anchorFn() : this.anchorRect;
+      const tr  = this._el.getBoundingClientRect();
+      const ax  = anchor.left + anchor.width  / 2;
+      const ay  = anchor.top  + anchor.height / 2;
+      // Nearest point on tooltip rectangle to the anchor
+      const tx  = Math.max(tr.left, Math.min(ax, tr.right));
+      const ty  = Math.max(tr.top,  Math.min(ay, tr.bottom));
+      const inside = ax >= tr.left && ax <= tr.right && ay >= tr.top && ay <= tr.bottom;
+      this._leaderSvg.style.display = inside ? 'none' : '';
+      this._leaderLine.setAttribute('x1', ax);
+      this._leaderLine.setAttribute('y1', ay);
+      this._leaderLine.setAttribute('x2', tx);
+      this._leaderLine.setAttribute('y2', ty);
+    }
+
+    _startDrag(e) {
+      if (!this.locked || e.target.closest('.ts-btn')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this._isDragging = true;
+      this._el.classList.add('ts-dragging');
+      const ox = e.clientX - this._el.offsetLeft;
+      const oy = e.clientY - this._el.offsetTop;
+
+      const onMove = (e) => {
+        this._el.style.left = `${e.clientX - ox}px`;
+        this._el.style.top  = `${e.clientY - oy}px`;
+        this._updateLeaderLine();
+      };
+      const onUp = () => {
+        this._isDragging = false;
+        this._el.classList.remove('ts-dragging');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup',   onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup',   onUp);
     }
 
     _attachTextTriggers() {
@@ -264,6 +341,7 @@
       this.locked = true;
       this._lockBtn.innerHTML = '🔒';
       this._lockBtn.classList.add('locked');
+      this._el.classList.add('ts-locked');
       TooltipManager.addLocked(this);
       if (RootContainer._activeChild === this) RootContainer._activeChild = null;
     }
@@ -272,7 +350,16 @@
       this.locked = false;
       this._lockBtn.innerHTML = '🔓';
       this._lockBtn.classList.remove('locked');
+      this._el.classList.remove('ts-locked');
       TooltipManager.removeLocked(this);
+      // Re-enter the dismiss chain. If another tooltip took the active slot since
+      // we locked, close it first so there is no orphan.
+      if (this.parentContainer._activeChild !== this) {
+        if (this.parentContainer._activeChild && !this.parentContainer._activeChild.locked) {
+          this.parentContainer._activeChild.close();
+        }
+        this.parentContainer._activeChild = this;
+      }
     }
 
     // ── Lifecycle ──
@@ -280,8 +367,12 @@
     close() {
       this._clearDismiss();
       this.dismissChild();
+      if (this._activeChild?.locked) this._activeChild._hideLeaderLine();
       this._childTriggers.forEach(t => t.detach());
       if (this.locked) TooltipManager.removeLocked(this);
+      this._leaderSvg?.remove();
+      this._leaderSvg = null;
+      this._leaderLine = null;
       this._el?.remove();
       this._el = null;
       if (this.parentContainer._activeChild === this) this.parentContainer._activeChild = null;
@@ -431,14 +522,14 @@
     _activeChild:  null,
     _dismissTimer: null,
 
-    requestTooltip(id, ctx, anchorRect) {
+    requestTooltip(id, ctx, anchorRect, anchorFn) {
       if (this._activeChild && !this._activeChild.locked) {
         const sameEntity = this._activeChild.id === id &&
           this._activeChild.ctx?._entityId === ctx?._entityId;
         if (sameEntity) { this.cancelDismiss(); return; }
         this._activeChild.close();
       }
-      const t = new Tooltip({ id, ctx, anchorRect, parentContainer: this });
+      const t = new Tooltip({ id, ctx, anchorRect, anchorFn, parentContainer: this });
       this._activeChild = t;
       t.mount();
     },
@@ -513,7 +604,7 @@
       const activeEntityId = RootContainer._activeChild?.ctx?._entityId;
       if (activeEntityId && hit.ctx?._entityId === activeEntityId) RootContainer.cancelDismiss();
       this._hoverTimer = setTimeout(() => {
-        RootContainer.requestTooltip(hit.id, hit.ctx, new DOMRect(e.clientX, e.clientY, 0, 0));
+        RootContainer.requestTooltip(hit.id, hit.ctx, new DOMRect(e.clientX, e.clientY, 0, 0), hit.anchorFn);
       }, this.hoverDelay);
     }
 

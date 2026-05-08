@@ -1509,7 +1509,7 @@ function fitView() {
 function forceRender() {
   if (!renderQueued) {
     renderQueued = true;
-    requestAnimationFrame(() => { renderQueued = false; render(); });
+    requestAnimationFrame(() => { renderQueued = false; render(); TooltipManager.refreshLeaderLines(); });
   }
 }
 
@@ -2203,13 +2203,15 @@ const _canvasTip = new CanvasTooltipAdapter(canvas, (cx, cy) => {
   const zoneHit = _hitTestZoneOrigin(cx, cy);
   if (zoneHit) return {
     id:  'zone-origin',
-    ctx: { _title: `Zone ${zoneHit.key}`, _zoneHit: zoneHit, _entityId: `zone:${zoneHit.key}` }
+    ctx: { _title: `Zone ${zoneHit.key}`, _zoneHit: zoneHit, _entityId: `zone:${zoneHit.key}` },
+    anchorFn: () => { const [sx, sy] = project(zoneHit.wx, zoneHit.wy, zoneHit.wz); return new DOMRect(sx, sy, 0, 0); }
   };
   const locHit = hitTest(cx, cy);
   if (!locHit) return null;
   return {
     id:  'location',
-    ctx: { _loc: locHit, _title: locHit.id, _entityId: locHit.id }
+    ctx: { _loc: locHit, _title: locHit.id, _entityId: locHit.id },
+    anchorFn: () => { const [sx, sy] = _projectLocCentre(locHit); return new DOMRect(sx, sy, 0, 0); }
   };
 });
 _canvasTip.attach();

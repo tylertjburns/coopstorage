@@ -92,8 +92,11 @@
   transition: background 0.1s, color 0.1s;
 }
 
-.ts-btn:hover          { background: #21262d; color: #c9d1d9; }
-.ts-lock-btn.locked    { color: #f0883e; }
+.ts-btn:hover                        { background: #21262d; color: #c9d1d9; }
+.ts-lock-btn.locked                  { color: #f0883e; }
+
+.ts-tooltip.ts-locked  .ts-header   { cursor: grab; }
+.ts-tooltip.ts-dragging .ts-header  { cursor: grabbing; }
 
 .ts-body {
   padding: 10px 12px;
