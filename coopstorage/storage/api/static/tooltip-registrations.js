@@ -37,6 +37,10 @@
     return `<a data-tip="glossary" data-tip-ctx='${JSON.stringify({ term, _title: term })}'>${display ?? term}</a>`;
   }
 
+  function instanceLink(type, id, display) {
+    return `<a data-tip="${type}" data-tip-ctx='${JSON.stringify({ id, _title: display ?? id })}'>${display ?? id}</a>`;
+  }
+
 
   // ── Glossary ──────────────────────────────────────────────────────────────
 
@@ -121,7 +125,7 @@
   // ── Location ──────────────────────────────────────────────────────────────
 
   TooltipRegistry.register('location', (ctx) => {
-    const loc = ctx._loc;
+    const loc = ctx._loc ?? window.TooltipDataStore?.locations.get(ctx.id);
     if (!loc) return null;
 
     const meta  = loc.meta ?? {};
@@ -142,7 +146,7 @@
         <tbody>${containerEntries.map(c => {
           const contents = (c.contents ?? []).map(x => `${x.qty}× ${x.resource}`).join(', ') || '—';
           return `<tr>
-            <td style="font-family:monospace;font-size:11px">${c.id.slice(-8)}</td>
+            <td style="font-family:monospace;font-size:11px">${instanceLink('container', c.id, c.id.slice(-8))}</td>
             <td>${badge(c.uom, 'blue')}</td>
             <td style="color:#8b949e">${contents}</td>
           </tr>`;
@@ -167,7 +171,7 @@
   // ── Container ─────────────────────────────────────────────────────────────
 
   TooltipRegistry.register('container', (ctx) => {
-    const c = ctx._container;
+    const c = ctx._container ?? window.TooltipDataStore?.containers.get(ctx.id);
     if (!c) return null;
     const contents = c.contents ?? [];
     const rows = contents.length
