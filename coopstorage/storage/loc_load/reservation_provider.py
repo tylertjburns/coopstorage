@@ -68,6 +68,19 @@ class _HttpReservationBase:
         self._max_retry_wait = max_retry_wait
         self._timeout = timeout
         self._slow_threshold = slow_threshold
+        self._session: Optional[requests.Session] = None
+        self._session_lock = threading.Lock()
+
+    @property
+    def _current_session(self) -> requests.Session:
+        with self._session_lock:
+            if self._session is None:
+                self._session = requests.Session()
+            return self._session
+
+    def _invalidate_session(self):
+        with self._session_lock:
+            self._session = None
 
     def _make_headers(self) -> dict:
         raise NotImplementedError
@@ -92,7 +105,7 @@ class _HttpReservationBase:
         logger.debug(f"POST {path}")
         t0 = time.monotonic()
         try:
-            resp = requests.post(f"{self._base_url}{path}", json=body, headers=headers, timeout=self._timeout)
+            resp = self._current_session.post(f"{self._base_url}{path}", json=body, headers=headers, timeout=self._timeout)
         except requests.exceptions.Timeout as exc:
             elapsed = time.monotonic() - t0
             logger.warning(
@@ -102,6 +115,7 @@ class _HttpReservationBase:
             raise
         except requests.exceptions.ConnectionError as exc:
             elapsed = time.monotonic() - t0
+            self._invalidate_session()
             logger.warning(
                 f"POST {path} — connection error after {elapsed:.3f}s "
                 f"url={self._base_url}{path} error={exc}"
@@ -166,7 +180,7 @@ class _HttpReservationBase:
         logger.debug(f"GET {path}")
         t0 = time.monotonic()
         try:
-            resp = requests.get(f"{self._base_url}{path}", headers=headers, timeout=self._timeout)
+            resp = self._current_session.get(f"{self._base_url}{path}", headers=headers, timeout=self._timeout)
         except requests.exceptions.Timeout as exc:
             elapsed = time.monotonic() - t0
             logger.warning(
@@ -176,6 +190,7 @@ class _HttpReservationBase:
             raise
         except requests.exceptions.ConnectionError as exc:
             elapsed = time.monotonic() - t0
+            self._invalidate_session()
             logger.warning(
                 f"GET {path} — connection error after {elapsed:.3f}s "
                 f"url={self._base_url}{path} error={exc}"
@@ -326,7 +341,7 @@ class JwtExchangeReservationProvider(_HttpReservationBase):
     def _exchange_token(self):
         t0 = time.monotonic()
         try:
-            resp = requests.post(
+            resp = self._current_session.post(
                 f"{self._base_url}/auth/token",
                 headers={'X-Api-Key': self._api_key},
                 timeout=self._timeout,
@@ -339,6 +354,7 @@ class JwtExchangeReservationProvider(_HttpReservationBase):
             )
             raise
         except requests.exceptions.ConnectionError as exc:
+            self._invalidate_session()
             logger.warning(
                 f"Reservation service unreachable at {self._base_url}/auth/token "
                 f"— will retry on next request. error={exc}"
