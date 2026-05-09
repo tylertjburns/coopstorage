@@ -1168,14 +1168,14 @@ function _drawCompass() {
   ctx.textBaseline = 'middle';
   ctx.fillText('X', xDirX * (armLen + 11), xDirY * (armLen + 11));
 
-  // Y axis — green
-  ctx.strokeStyle = '#3fb950';
+  // Y axis — blue
+  ctx.strokeStyle = '#4d9de0';
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(0, 0);
   ctx.lineTo(yDirX * armLen, yDirY * armLen);
   ctx.stroke();
-  ctx.fillStyle = '#3fb950';
+  ctx.fillStyle = '#4d9de0';
   _arrowHead(yDirX * armLen, yDirY * armLen, yDirX, yDirY, 6);
   ctx.fillText('Y', yDirX * (armLen + 11), yDirY * (armLen + 11));
 
