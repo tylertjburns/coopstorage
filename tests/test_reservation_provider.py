@@ -72,6 +72,7 @@ class TestApiKeyReservationProviderCheckMethods(unittest.TestCase):
         mock_get.assert_called_once_with(
             'http://test-host/api/v1/Reservation/check/r1',
             headers=self._expected_headers,
+            timeout=10.0,
         )
 
     @patch('coopstorage.storage.loc_load.reservation_provider.requests.get')
@@ -94,6 +95,7 @@ class TestApiKeyReservationProviderCheckMethods(unittest.TestCase):
             'http://test-host/api/v1/Reservation/check',
             json={'resources': ['r1', 'r2', 'r3']},
             headers=self._expected_headers,
+            timeout=10.0,
         )
 
     @patch('coopstorage.storage.loc_load.reservation_provider.requests.post')
@@ -145,6 +147,7 @@ class TestJwtExchangeReservationProviderCheckMethods(unittest.TestCase):
         mock_get.assert_called_once_with(
             'http://jwt-host/api/v1/Reservation/check/r1',
             headers={'Authorization': 'Bearer test-jwt-token'},
+            timeout=10.0,
         )
 
     @patch('coopstorage.storage.loc_load.reservation_provider.requests.get')

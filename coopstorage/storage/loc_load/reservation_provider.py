@@ -63,9 +63,11 @@ class _HttpReservationBase:
     and may override _on_auth_failure() to invalidate cached tokens on 401.
     """
 
-    def __init__(self, base_url: str, max_retry_wait: float = 10.0):
+    def __init__(self, base_url: str, max_retry_wait: float = 10.0, timeout: float = 10.0, slow_threshold: float = 1.0):
         self._base_url = base_url.rstrip('/')
         self._max_retry_wait = max_retry_wait
+        self._timeout = timeout
+        self._slow_threshold = slow_threshold
 
     def _make_headers(self) -> dict:
         raise NotImplementedError
@@ -83,23 +85,38 @@ class _HttpReservationBase:
     def _post(self, path: str, body, *, _re_auth: bool = True, attempts: int = 3) -> list:
         try:
             headers = self._make_headers()
-        except requests.exceptions.ConnectionError:
-            logger.warning(f"Auth unavailable for POST {path} — service unreachable")
+        except requests.exceptions.ConnectionError as exc:
+            logger.warning(f"Auth unavailable for POST {path} — url={self._base_url}{path} error={exc}")
             return []
 
         logger.debug(f"POST {path}")
         t0 = time.monotonic()
         try:
-            resp = requests.post(f"{self._base_url}{path}", json=body, headers=headers)
-        except requests.exceptions.ConnectionError:
+            resp = requests.post(f"{self._base_url}{path}", json=body, headers=headers, timeout=self._timeout)
+        except requests.exceptions.Timeout as exc:
             elapsed = time.monotonic() - t0
-            logger.warning(f"POST {path} — connection error after {elapsed:.3f}s")
+            logger.warning(
+                f"POST {path} — timed out after {elapsed:.3f}s (timeout={self._timeout}s) "
+                f"url={self._base_url}{path} error={exc}"
+            )
+            raise
+        except requests.exceptions.ConnectionError as exc:
+            elapsed = time.monotonic() - t0
+            logger.warning(
+                f"POST {path} — connection error after {elapsed:.3f}s "
+                f"url={self._base_url}{path} error={exc}"
+            )
             return []
         elapsed = time.monotonic() - t0
         logger.debug(f"POST {path} → HTTP {resp.status_code} {resp.reason} in {elapsed:.3f}s")
+        if elapsed > self._slow_threshold:
+            logger.warning(
+                f"POST {path} → HTTP {resp.status_code} {resp.reason} in {elapsed:.3f}s "
+                f"exceeds slow_threshold={self._slow_threshold}s"
+            )
 
         if resp.status_code == 401 and _re_auth:
-            logger.warning(f"401 Unauthorized on POST {path} — refreshing auth and retrying")
+            logger.warning(f"401 Unauthorized on POST {path} in {elapsed:.3f}s — refreshing auth and retrying")
             self._on_auth_failure()
             return self._post(path, body, _re_auth=False, attempts=attempts)
 
@@ -112,26 +129,28 @@ class _HttpReservationBase:
             retry_after = float(body_data.get('retryAfter') or resp.headers.get('Retry-After', 1))
             if retry_after > self._max_retry_wait:
                 logger.error(
-                    f"429 Too Many Requests on POST {path} — retryAfter={retry_after:.1f}s "
+                    f"429 Too Many Requests on POST {path} in {elapsed:.3f}s — retryAfter={retry_after:.1f}s "
                     f"exceeds max_retry_wait={self._max_retry_wait:.1f}s; failing fast"
                 )
                 raise RateLimitedError(retry_after)
             retry_at = time.strftime('%H:%M:%S', time.localtime(time.time() + retry_after))
             logger.warning(
-                f"429 Too Many Requests on POST {path} — retryAfter={retry_after:.1f}s; retrying at {retry_at}"
+                f"429 Too Many Requests on POST {path} in {elapsed:.3f}s — "
+                f"retryAfter={retry_after:.1f}s; retrying at {retry_at}"
             )
             time.sleep(retry_after)
             return self._post(path, body, _re_auth=_re_auth, attempts=attempts)
 
         if resp.status_code >= 500 and attempts > 0:
             logger.warning(
-                f"HTTP {resp.status_code} {resp.reason} on POST {path} — retrying ({attempts} attempts left)"
+                f"HTTP {resp.status_code} {resp.reason} on POST {path} in {elapsed:.3f}s — "
+                f"retrying ({attempts} attempts left)"
             )
             time.sleep(1)
             return self._post(path, body, _re_auth=_re_auth, attempts=attempts - 1)
 
         if resp.status_code >= 400:
-            logger.error(f"POST {path} failed: HTTP {resp.status_code} {resp.reason}: {resp.text}")
+            logger.error(f"POST {path} in {elapsed:.3f}s failed: HTTP {resp.status_code} {resp.reason}: {resp.text}")
             raise requests.HTTPError(f"POST {path} failed: {resp.status_code}")
 
         resp.raise_for_status()
@@ -140,23 +159,38 @@ class _HttpReservationBase:
     def _get(self, path: str, *, _re_auth: bool = True) -> dict:
         try:
             headers = self._make_headers()
-        except requests.exceptions.ConnectionError:
-            logger.warning(f"Auth unavailable for GET {path} — service unreachable")
+        except requests.exceptions.ConnectionError as exc:
+            logger.warning(f"Auth unavailable for GET {path} — url={self._base_url}{path} error={exc}")
             return {}
 
         logger.debug(f"GET {path}")
         t0 = time.monotonic()
         try:
-            resp = requests.get(f"{self._base_url}{path}", headers=headers)
-        except requests.exceptions.ConnectionError:
+            resp = requests.get(f"{self._base_url}{path}", headers=headers, timeout=self._timeout)
+        except requests.exceptions.Timeout as exc:
             elapsed = time.monotonic() - t0
-            logger.warning(f"GET {path} — connection error after {elapsed:.3f}s")
+            logger.warning(
+                f"GET {path} — timed out after {elapsed:.3f}s (timeout={self._timeout}s) "
+                f"url={self._base_url}{path} error={exc}"
+            )
+            raise
+        except requests.exceptions.ConnectionError as exc:
+            elapsed = time.monotonic() - t0
+            logger.warning(
+                f"GET {path} — connection error after {elapsed:.3f}s "
+                f"url={self._base_url}{path} error={exc}"
+            )
             return {}
         elapsed = time.monotonic() - t0
         logger.debug(f"GET {path} → HTTP {resp.status_code} {resp.reason} in {elapsed:.3f}s")
+        if elapsed > self._slow_threshold:
+            logger.warning(
+                f"GET {path} → HTTP {resp.status_code} {resp.reason} in {elapsed:.3f}s "
+                f"exceeds slow_threshold={self._slow_threshold}s"
+            )
 
         if resp.status_code == 401 and _re_auth:
-            logger.warning(f"401 Unauthorized on GET {path} — refreshing auth and retrying")
+            logger.warning(f"401 Unauthorized on GET {path} in {elapsed:.3f}s — refreshing auth and retrying")
             self._on_auth_failure()
             return self._get(path, _re_auth=False)
 
@@ -169,13 +203,14 @@ class _HttpReservationBase:
             retry_after = float(body_data.get('retryAfter') or resp.headers.get('Retry-After', 1))
             if retry_after > self._max_retry_wait:
                 logger.error(
-                    f"429 Too Many Requests on GET {path} — retryAfter={retry_after:.1f}s "
+                    f"429 Too Many Requests on GET {path} in {elapsed:.3f}s — retryAfter={retry_after:.1f}s "
                     f"exceeds max_retry_wait={self._max_retry_wait:.1f}s; failing fast"
                 )
                 raise RateLimitedError(retry_after)
             retry_at = time.strftime('%H:%M:%S', time.localtime(time.time() + retry_after))
             logger.warning(
-                f"429 Too Many Requests on GET {path} — retryAfter={retry_after:.1f}s; retrying at {retry_at}"
+                f"429 Too Many Requests on GET {path} in {elapsed:.3f}s — "
+                f"retryAfter={retry_after:.1f}s; retrying at {retry_at}"
             )
             time.sleep(retry_after)
             return self._get(path, _re_auth=_re_auth)
@@ -261,8 +296,8 @@ class _HttpReservationBase:
 class ApiKeyReservationProvider(_HttpReservationBase):
     """Authenticates via X-Api-Key header on every request."""
 
-    def __init__(self, base_url: str, api_key: str, max_retry_wait: float = 10.0):
-        super().__init__(base_url, max_retry_wait=max_retry_wait)
+    def __init__(self, base_url: str, api_key: str, max_retry_wait: float = 10.0, timeout: float = 10.0, slow_threshold: float = 1.0):
+        super().__init__(base_url, max_retry_wait=max_retry_wait, timeout=timeout, slow_threshold=slow_threshold)
         self._api_key = api_key
 
     def _make_headers(self) -> dict:
@@ -279,8 +314,8 @@ class JwtExchangeReservationProvider(_HttpReservationBase):
 
     _EXPIRY_BUFFER_SECONDS = 30
 
-    def __init__(self, base_url: str, api_key: str, max_retry_wait: float = 10.0):
-        super().__init__(base_url, max_retry_wait=max_retry_wait)
+    def __init__(self, base_url: str, api_key: str, max_retry_wait: float = 10.0, timeout: float = 10.0, slow_threshold: float = 1.0):
+        super().__init__(base_url, max_retry_wait=max_retry_wait, timeout=timeout, slow_threshold=slow_threshold)
         self._api_key = api_key
         self._token: Optional[str] = None
         self._token_expires_at: float = 0.0
@@ -289,35 +324,52 @@ class JwtExchangeReservationProvider(_HttpReservationBase):
         self._token_lock = threading.Lock()
 
     def _exchange_token(self):
+        t0 = time.monotonic()
         try:
             resp = requests.post(
                 f"{self._base_url}/auth/token",
                 headers={'X-Api-Key': self._api_key},
+                timeout=self._timeout,
             )
-            if resp.status_code == 429:
-                body_data = {}
-                try:
-                    body_data = resp.json()
-                except Exception:
-                    pass
-                retry_after = float(body_data.get('retryAfter') or resp.headers.get('Retry-After', 5))
-                self._auth_backoff_until = time.monotonic() + retry_after
-                logger.warning(
-                    f"429 on auth/token — backing off {retry_after:.1f}s before next attempt"
-                )
-                raise RateLimitedError(retry_after)
-            if 400 <= resp.status_code < 500:
-                self._auth_forbidden = True
-                logger.error(
-                    f"{resp.status_code} {resp.reason} on auth/token — check API key/URL configuration"
-                )
-                raise AuthError(resp.status_code, f"{resp.reason} — check API key/URL configuration")
-            resp.raise_for_status()
-        except requests.exceptions.ConnectionError:
+        except requests.exceptions.Timeout as exc:
+            elapsed = time.monotonic() - t0
             logger.warning(
-                f"Reservation service unreachable at {self._base_url}/auth/token — will retry on next request."
+                f"Timeout on auth/token after {elapsed:.3f}s (limit={self._timeout}s) "
+                f"url={self._base_url}/auth/token error={exc}"
             )
             raise
+        except requests.exceptions.ConnectionError as exc:
+            logger.warning(
+                f"Reservation service unreachable at {self._base_url}/auth/token "
+                f"— will retry on next request. error={exc}"
+            )
+            raise
+        elapsed = time.monotonic() - t0
+        if elapsed > self._slow_threshold:
+            logger.warning(
+                f"auth/token → HTTP {resp.status_code} {resp.reason} in {elapsed:.3f}s "
+                f"exceeds slow_threshold={self._slow_threshold}s"
+            )
+        if resp.status_code == 429:
+            body_data = {}
+            try:
+                body_data = resp.json()
+            except Exception:
+                pass
+            retry_after = float(body_data.get('retryAfter') or resp.headers.get('Retry-After', 5))
+            self._auth_backoff_until = time.monotonic() + retry_after
+            logger.warning(
+                f"429 on auth/token in {elapsed:.3f}s — backing off {retry_after:.1f}s before next attempt"
+            )
+            raise RateLimitedError(retry_after)
+        if 400 <= resp.status_code < 500:
+            self._auth_forbidden = True
+            logger.error(
+                f"{resp.status_code} {resp.reason} on auth/token in {elapsed:.3f}s "
+                f"— check API key/URL configuration"
+            )
+            raise AuthError(resp.status_code, f"{resp.reason} — check API key/URL configuration")
+        resp.raise_for_status()
         data = resp.json()
         self._token = data['accessToken']
         expires_in = data['expiresIn']
