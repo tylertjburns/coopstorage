@@ -15,6 +15,7 @@ Usage
     python run_viz_benchmark.py --delay 0.05            # 50ms between ops
     python run_viz_benchmark.py --no-browser            # don't auto-open browser
     python run_viz_benchmark.py --port 1219             # custom port (default 1219)
+    python run_viz_benchmark.py --latency-warning 500   # warn if reservation API response > 500ms
 
 The visualizer is served at:  http://localhost:<port>/static/index.html
 """
@@ -90,16 +91,19 @@ def main():
                         help="API key for the Locker reservation API (required when --reservation-url is set)")
     parser.add_argument("--auth-mode", default="jwt", choices=["jwt", "apikey"],
                         help="Auth mode for the reservation API: jwt (default) or apikey")
+    parser.add_argument("--latency-warning", type=int, default=1000, metavar="MS",
+                        help="Warn if reservation API response exceeds this threshold in ms (default: 1000)")
     args = parser.parse_args()
 
     if args.reservation_url and not args.api_key:
         parser.error("--api-key is required when --reservation-url is set")
 
     if args.reservation_url:
+        slow_threshold = args.latency_warning / 1000.0
         if args.auth_mode == "jwt":
-            reservation_provider = JwtExchangeReservationProvider(args.reservation_url, args.api_key)
+            reservation_provider = JwtExchangeReservationProvider(args.reservation_url, args.api_key, slow_threshold=slow_threshold)
         else:
-            reservation_provider = ApiKeyReservationProvider(args.reservation_url, args.api_key)
+            reservation_provider = ApiKeyReservationProvider(args.reservation_url, args.api_key, slow_threshold=slow_threshold)
     else:
         reservation_provider = None
 
