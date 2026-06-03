@@ -29,7 +29,8 @@ class ReservationFailedError(Exception):
 
 class ReservationCheckFailedError(Exception):
     """Raised by is_reserved/get_reserved_ids when the check cannot complete due to rate limiting."""
-    def __init__(self, message: str):
+    def __init__(self, message: str, retry_after: float = None):
+        self.retry_after = retry_after
         super().__init__(message)
 
 
@@ -283,7 +284,8 @@ class _HttpReservationBase:
             result = self._get(f'/api/v1/Reservation/check/{resource}')
         except (RateLimitedError, AuthError) as exc:
             raise ReservationCheckFailedError(
-                f"is_reserved auth error: {exc}: resource={resource}"
+                f"is_reserved auth error: {exc}: resource={resource}",
+                retry_after=exc.retry_after if isinstance(exc, RateLimitedError) else None,
             ) from exc
         elapsed = time.monotonic() - t0
         is_res = result.get('isReserved', False)
@@ -300,7 +302,8 @@ class _HttpReservationBase:
             results = self._post('/api/v1/Reservation/check', {'resources': ids})
         except (RateLimitedError, AuthError) as exc:
             raise ReservationCheckFailedError(
-                f"get_reserved_ids auth error: {exc}: {len(ids)} IDs"
+                f"get_reserved_ids auth error: {exc}: {len(ids)} IDs",
+                retry_after=exc.retry_after if isinstance(exc, RateLimitedError) else None,
             ) from exc
         elapsed = time.monotonic() - t0
         reserved = {r['resource'] for r in results if r.get('isReserved')}

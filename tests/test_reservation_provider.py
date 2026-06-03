@@ -14,6 +14,7 @@ from coopstorage.storage.loc_load.reservation_provider import (
     PassthroughReservationProvider,
     ApiKeyReservationProvider,
     JwtExchangeReservationProvider,
+    ReservationCheckFailedError,
 )
 
 
@@ -106,6 +107,26 @@ class TestApiKeyReservationProviderCheckMethods(unittest.TestCase):
     def test_get_reserved_ids_empty_input_returns_empty_set(self):
         self.mock_session.post.return_value = self._mock_post_response([])
         self.assertEqual(self.provider.get_reserved_ids([]), set())
+
+    def _mock_429_response(self, retry_after_secs):
+        resp = MagicMock()
+        resp.status_code = 429
+        resp.headers = {'Retry-After': str(retry_after_secs)}
+        resp.json.return_value = {}
+        resp.reason = 'Too Many Requests'
+        return resp
+
+    def test_is_reserved_propagates_retry_after_on_rate_limit(self):
+        self.mock_session.get.return_value = self._mock_429_response(15.0)
+        with self.assertRaises(ReservationCheckFailedError) as ctx:
+            self.provider.is_reserved('r1')
+        self.assertEqual(ctx.exception.retry_after, 15.0)
+
+    def test_get_reserved_ids_propagates_retry_after_on_rate_limit(self):
+        self.mock_session.post.return_value = self._mock_429_response(20.0)
+        with self.assertRaises(ReservationCheckFailedError) as ctx:
+            self.provider.get_reserved_ids(['r1', 'r2'])
+        self.assertEqual(ctx.exception.retry_after, 20.0)
 
 
 # ── JwtExchangeReservationProvider ────────────────────────────────────────────
