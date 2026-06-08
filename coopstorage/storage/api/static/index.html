@@ -186,6 +186,22 @@
                        border-radius: 50%; flex-shrink: 0; }
     .tr-ready-yes    { background: #3fb950; }
     .tr-ready-no     { background: #e3b341; }
+
+    /* ── Layers panel ─────────────────────────────────────────────────────────── */
+    #layers-panel {
+      display: none; position: fixed; top: 46px; left: 12px;
+      background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+      padding: 10px 14px; font-family: monospace; font-size: 11px;
+      min-width: 220px; z-index: 10;
+    }
+    #layers-panel.visible { display: block; }
+    #layers-panel-title { color: #e6edf3; font-size: 12px; font-weight: bold; margin-bottom: 8px; display: block; }
+    .layer-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+    .layer-row:not(:last-child) { border-bottom: 1px solid #21262d; }
+    .layer-check { width: 14px; height: 14px; cursor: pointer; flex-shrink: 0; }
+    .layer-heat-swatch { width: 32px; height: 11px; border-radius: 2px; flex-shrink: 0; border: 1px solid #30363d; }
+    .layer-label { color: #c9d1d9; cursor: pointer; flex: 1; font-size: 11px; }
+    .layer-count { color: #484f58; font-size: 10px; min-width: 28px; text-align: right; }
   </style>
   <link rel="stylesheet" href="/static/tooltip-system.css">
 </head>
@@ -207,6 +223,7 @@
   <span style="width:1px;background:#30363d;height:20px;display:inline-block;margin:0 4px;"></span>
   <button class="btn" id="btn-viz-config">⚙ Viz</button>
   <button class="btn" id="btn-tr-panel">Transfers</button>
+  <button class="btn" id="btn-layers">Layers</button>
   <span id="hint">Scroll to zoom · Drag to pan</span>
 </div>
 
@@ -227,6 +244,11 @@
     </thead>
     <tbody id="tr-tbody"></tbody>
   </table>
+</div>
+
+<div id="layers-panel">
+  <span id="layers-panel-title">Layers</span>
+  <div id="layers-list"></div>
 </div>
 
 <div id="confirm-overlay">
@@ -598,6 +620,7 @@
 
 <script src="/static/tooltip-system.js"></script>
 <script src="/static/tooltip-registrations.js"></script>
+<script src="/static/heatmap-layer.js"></script>
 <script>
 // ─── State ────────────────────────────────────────────────────────────────────
 // locations: id → { id, coords:[x,y,z], meta:{dims,channel_processor,capacity,...},
@@ -661,6 +684,12 @@ const AMBER           = '#e3b341';
 const AMBER_FILL      = 'rgba(61,46,0,0.85)';
 const reservedContainerIds = new Set();  // container IDs with active reservations
 const reservedLocationIds  = new Set();  // location IDs with active reservations
+
+// ─── Heatmap layers ───────────────────────────────────────────────────────────
+const heatLayers = [
+  new HeatmapLayer({ name: 'Location Reservations', fetchUrl: '/v1/heatmap', countKey: 'location', r: 52,  g: 152, b: 219 }),
+  new HeatmapLayer({ name: 'Load Reservations',     fetchUrl: '/v1/heatmap', countKey: 'load',     r: 231, g: 76,  b: 60  }),
+];
 
 // ─── Reservation animation state ─────────────────────────────────────────────
 const ANIM_DUR_RESERVE   = 900;   // ms — two amber rings
@@ -1409,6 +1438,11 @@ function _paintBackground(tc) {
       }
       if (tc.locsDisplay === 'dots') _flushDots(dotsEmpty, dotsOccupied, dotsReserved, r);
     }
+  }
+
+  // Heatmap layers — drawn last so they overlay the location graphics
+  for (const layer of heatLayers) {
+    layer.draw({ ctx, locations, project, W, H, scale });
   }
 
   ctx = savedCtx;   // eslint-disable-line no-global-assign
@@ -2379,9 +2413,11 @@ function applyEvent(msg) {
         if (cid in loc.containers) {
           const [wx, wy, wz] = loc.coords, [dx, dy, dz] = loc.meta.dims;
           _triggerReservationAnim('reserve', [wx + dx * 0.5, wy + dy * 0.5, wz + dz * 0.5]);
+          for (const l of heatLayers) if (l.countKey === 'load') l.incrCount(loc.id);
           break;
         }
       }
+      _updateLayerCounts();
       _renderTrPanel();
       break;
     }
@@ -2409,6 +2445,8 @@ function applyEvent(msg) {
       }
       reservedLocationIds.add(lid);
       _markBgDirty();
+      for (const l of heatLayers) if (l.countKey === 'location') l.incrCount(lid);
+      _updateLayerCounts();
       _renderTrPanel();
       break;
     }
@@ -2497,6 +2535,11 @@ async function loadSnapshot() {
   fitView();
   const tc0 = _activeTierConfig();
   if (tc0.hoverDetail === 'tiles') _prewarmTiles([...locations.values()]);
+
+  // Fetch initial heatmap data for all layers so counts are always populated
+  // regardless of whether any layer is currently enabled.
+  await Promise.all(heatLayers.map(l => l.fetchCounts()));
+  _updateLayerCounts();
 }
 
 let _prewarmGeneration = 0;  // incremented to cancel in-flight prewarms
@@ -2575,6 +2618,45 @@ async function boot() {
     }
   }
 }
+
+// ─── Layers panel ─────────────────────────────────────────────────────────────
+const layersPanel = document.getElementById('layers-panel');
+const btnLayers   = document.getElementById('btn-layers');
+
+function _updateLayerCounts() {
+  heatLayers.forEach((layer, i) => {
+    const el = document.getElementById(`layer-ct-${i}`);
+    if (el) el.textContent = layer.totalCount.toLocaleString();
+  });
+}
+
+function _buildLayerPanel() {
+  const list = document.getElementById('layers-list');
+  list.innerHTML = '';
+  heatLayers.forEach((layer, i) => {
+    const row = document.createElement('div');
+    row.className = 'layer-row';
+    row.innerHTML = `
+      <input type="checkbox" class="layer-check" id="layer-cb-${i}">
+      <div class="layer-heat-swatch" style="background:linear-gradient(90deg,rgba(${layer.r},${layer.g},${layer.b},0),rgba(${layer.r},${layer.g},${layer.b},0.8))"></div>
+      <label for="layer-cb-${i}" class="layer-label">${layer.name}</label>
+      <span class="layer-count" id="layer-ct-${i}">0</span>
+    `;
+    list.appendChild(row);
+    document.getElementById(`layer-cb-${i}`).addEventListener('change', e => {
+      layer.enabled = e.target.checked;
+      _markBgDirty();
+      forceRender();
+    });
+  });
+}
+
+btnLayers.addEventListener('click', () => {
+  const visible = layersPanel.classList.toggle('visible');
+  btnLayers.classList.toggle('active', visible);
+});
+
+_buildLayerPanel();
 
 // Initialize index structure so _indexLoc has level-keyed Maps to add into during snapshot load
 _rebuildIndices();
@@ -2898,8 +2980,10 @@ document.getElementById('btn-clear-locs').addEventListener('click', async () => 
   groupBoxCache.clear();
   reservedContainerIds.clear();
   reservedLocationIds.clear();
+  heatLayers.forEach(l => l.clearCounts());
   hoveredAisleKey = null;
   hoveredLocId    = null;
+  _updateLayerCounts();
   _renderTrPanel();
   forceRender();
   await loadSnapshot();

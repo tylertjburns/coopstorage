@@ -12,12 +12,14 @@ from coopstorage.storage.loc_load.storage import Storage
 from coopstorage.storage.loc_load.data.storageDataStore import StorageDataStore
 from coopstorage.storage.loc_load.event_bus import StorageEventBus
 from coopstorage.storage.api.routers import v1
+from coopstorage.storage.api.routers.v1.heatmap_tracker import HeatmapTracker
 
 logger = logging.getLogger(__name__)
 
 
 def _v1_router(storage: Storage, event_bus: StorageEventBus) -> APIRouter:
-    router = APIRouter(prefix="/v1")
+    router          = APIRouter(prefix="/v1")
+    heatmap_tracker = HeatmapTracker(storage)
     router.include_router(v1.container_router_factory(storage),          tags=["containers"])
     router.include_router(v1.location_router_factory(storage),           tags=["locations"])
     router.include_router(v1.transfer_request_router_factory(storage),   tags=["transfer_requests"])
@@ -26,6 +28,7 @@ def _v1_router(storage: Storage, event_bus: StorageEventBus) -> APIRouter:
     router.include_router(v1.tree_router_factory(storage))
     router.include_router(v1.generate_router_factory(storage))
     router.include_router(v1.simulate_router_factory(storage, event_bus))
+    router.include_router(v1.HeatmapRouter(heatmap_tracker).router,      tags=["heatmap"])
     return router
 
 

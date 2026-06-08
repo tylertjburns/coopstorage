@@ -2,8 +2,10 @@ import logging
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 from coopstorage.storage.loc_load.location import Location
+from coopstorage.storage.loc_load.reservation_provider import ReservationCheckFailedError
 from coopstorage.storage.loc_load.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -91,12 +93,24 @@ def snapshot_router_factory(storage: Storage) -> APIRouter:
             for req_id, req in pending_trs.items()
         }
 
+        try:
+            reserved_container_ids = list(storage.get_reserved_container_ids())
+            reserved_location_ids  = list(storage.get_reserved_location_ids())
+        except ReservationCheckFailedError as e:
+            logger.warning("Snapshot reservation check failed — returning 503: %s", e)
+            retry_after = str(int(e.retry_after)) if e.retry_after is not None else "5"
+            return JSONResponse(
+                status_code=503,
+                headers={"Retry-After": retry_after},
+                content={"detail": str(e)},
+            )
+
         return {
             'total': total,
             'offset': offset,
             'locations': serialized,
-            'reserved_container_ids': list(storage.get_reserved_container_ids()),
-            'reserved_location_ids':  list(storage.get_reserved_location_ids()),
+            'reserved_container_ids': reserved_container_ids,
+            'reserved_location_ids':  reserved_location_ids,
             'transfer_requests':      transfer_requests,
         }
 
