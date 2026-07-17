@@ -57,6 +57,7 @@ from coopstorage.storage.loc_load.reservation_provider import (
     ApiKeyReservationProvider,
     JwtExchangeReservationProvider,
 )
+from coopstorage.storage.layout_manager import sqlite_layout_manager
 from coopstorage.storage.loc_load.event_bus import StorageEvent
 
 # ── config maps ───────────────────────────────────────────────────────────────
@@ -205,6 +206,7 @@ def main():
         port=args.port,
         open_browser=not args.no_browser,
         block=False,
+        layout_manager=sqlite_layout_manager(),
     )
 
     # Build on_status callback that forwards sim status to the SSE event bus

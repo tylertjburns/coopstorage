@@ -202,12 +202,117 @@
     .layer-heat-swatch { width: 32px; height: 11px; border-radius: 2px; flex-shrink: 0; border: 1px solid #30363d; }
     .layer-label { color: #c9d1d9; cursor: pointer; flex: 1; font-size: 11px; }
     .layer-count { color: #484f58; font-size: 10px; min-width: 28px; text-align: right; }
+
+    /* ── Zones panel ──────────────────────────────────────────────────────────── */
+    #zones-panel {
+      display: none; position: fixed; top: 46px; left: 12px;
+      background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+      padding: 10px 14px; font-family: monospace; font-size: 11px;
+      min-width: 220px; max-width: 280px; z-index: 10;
+      max-height: calc(100vh - 70px); overflow-y: auto;
+    }
+    #zones-panel.visible { display: block; }
+    #zones-panel-title { color: #e6edf3; font-size: 12px; font-weight: bold; margin-bottom: 8px; display: block; }
+    .zone-entry { display: flex; align-items: center; gap: 5px; padding: 5px 0; border-bottom: 1px solid #21262d; }
+    .zone-entry:last-child { border-bottom: none; }
+    .zone-entry-name { color: #e6edf3; font-size: 11px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .zone-entry-count { color: #8b949e; font-size: 10px; white-space: nowrap; flex-shrink: 0; }
+    .zone-entry-edit, .zone-entry-delete { padding: 1px 5px; font-size: 11px; flex-shrink: 0; }
+    #bld-vna-row { display: none; }
+    #btn-pin-pos { padding: 2px 7px; align-self: flex-end; margin-bottom: 2px; flex-shrink: 0; }
+    #btn-pin-pos.pinned { border-color: #f0883e; color: #f0883e; }
+    #btn-place-here { width: 100%; }
+
+    /* ── Layout picker overlay ─────────────────────────────────────────────────── */
+    #mode-picker {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(1,4,9,0.94);
+      display: flex; align-items: center; justify-content: center;
+    }
+    #mode-picker.hidden { display: none; }
+    #mode-picker-box {
+      background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+      padding: 28px 32px; width: 420px; font-family: monospace;
+    }
+    #mode-picker-title { color: #e6edf3; font-size: 17px; font-weight: bold; text-align: center; margin-bottom: 4px; }
+    #mode-picker-sub   { color: #484f58; font-size: 11px; text-align: center; margin-bottom: 20px; }
+    #layout-list { max-height: 220px; overflow-y: auto; margin-bottom: 10px; }
+    .layout-item {
+      padding: 9px 11px; border: 1px solid #21262d; border-radius: 4px; margin-bottom: 5px;
+      cursor: pointer; color: #c9d1d9; font-size: 12px; transition: border-color 0.12s;
+    }
+    .layout-item:hover { border-color: #58a6ff; color: #e6edf3; }
+    .layout-item-meta { color: #484f58; font-size: 10px; margin-top: 2px; }
+    #layout-list-empty { color: #484f58; font-size: 11px; padding: 6px 0; }
+    #new-layout-row {
+      display: flex; gap: 8px; align-items: center;
+      border-top: 1px solid #21262d; padding-top: 10px;
+    }
+    #new-layout-name {
+      flex: 1; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+      border-radius: 4px; padding: 6px 8px; font-family: monospace; font-size: 11px;
+    }
+    #new-layout-name:focus { outline: none; border-color: #58a6ff; }
+
+    /* ── Layout HUD strip (shown once a layout is active) ──────────────────────── */
+    #layout-hud {
+      display: none; align-items: center; gap: 6px;
+    }
+    #layout-hud.visible { display: flex; }
+    #layout-hud-name { color: #8b949e; font-size: 11px; font-family: monospace; max-width: 160px;
+                       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #btn-layout-home { font-size: 13px; line-height: 1; padding: 2px 6px; cursor: pointer; }
+
+    /* ── Builder panel ─────────────────────────────────────────────────────────── */
+    #builder-panel {
+      display: none; position: fixed; top: 46px; right: 12px;
+      background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+      padding: 10px 14px; font-family: monospace; font-size: 11px;
+      width: 264px; z-index: 10; max-height: calc(100vh - 70px); overflow-y: auto;
+    }
+    #builder-panel.visible { display: block; }
+    #builder-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    #builder-panel-title { color: #e6edf3; font-size: 12px; font-weight: bold; }
+    #btn-builder-close { background: none; border: none; color: #8b949e; cursor: pointer; font-size: 14px; padding: 0; line-height: 1; }
+    #btn-builder-close:hover { color: #f85149; }
+    .builder-section { margin-top: 10px; margin-bottom: 6px; color: #58a6ff; font-size: 10px;
+                       text-transform: uppercase; letter-spacing: 0.05em;
+                       border-top: 1px solid #21262d; padding-top: 8px; }
+    .bld-row { display: flex; gap: 6px; margin-bottom: 5px; }
+    .bld-field { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+    .bld-field label { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.04em; }
+    .bld-rot-preset { flex: 1; font-size: 10px; padding: 2px 0; }
+    .bld-field input, .bld-field select {
+      background: #0d1117; border: 1px solid #30363d; color: #c9d1d9;
+      border-radius: 4px; padding: 4px 6px; font-family: monospace; font-size: 11px; width: 100%;
+    }
+    .bld-field input:focus, .bld-field select:focus { outline: none; border-color: #58a6ff; }
+    #builder-actions { margin-top: 10px; display: flex; gap: 8px; align-items: center; }
+    #builder-placing-hint {
+      display: none; margin-top: 8px; color: #58a6ff; font-size: 10px; text-align: center;
+      padding: 5px 8px; background: rgba(31,111,235,0.1);
+      border: 1px solid rgba(56,139,253,0.3); border-radius: 4px;
+    }
+    #canvas.builder-mode  { cursor: default; }
+    #canvas.placing-mode  { cursor: crosshair; }
   </style>
   <link rel="stylesheet" href="/static/tooltip-system.css">
 </head>
 <body>
 
 <canvas id="canvas"></canvas>
+
+<div id="mode-picker">
+  <div id="mode-picker-box">
+    <div id="mode-picker-title">CoopStorage</div>
+    <div id="mode-picker-sub">Select a layout or create a new one</div>
+    <div id="layout-list"><div id="layout-list-empty">Loading&hellip;</div></div>
+    <div id="new-layout-row">
+      <input id="new-layout-name" type="text" placeholder="New layout name&hellip;" />
+      <button class="btn btn-sim" id="btn-create-layout">+ New</button>
+    </div>
+  </div>
+</div>
 
 <div id="hud">
   <button class="btn active" id="btn-iso">Isometric</button>
@@ -224,6 +329,14 @@
   <button class="btn" id="btn-viz-config">⚙ Viz</button>
   <button class="btn" id="btn-tr-panel">Transfers</button>
   <button class="btn" id="btn-layers">Layers</button>
+  <div id="layout-hud">
+    <span style="width:1px;background:#30363d;height:20px;display:inline-block;margin:0 2px;"></span>
+    <span id="layout-hud-name"></span>
+    <button class="btn active" id="btn-mode-simulate">&#9654; Simulate</button>
+    <button class="btn"        id="btn-build">&#9998; Build</button>
+    <button class="btn" id="btn-zones">Zones</button>
+    <button class="btn" id="btn-layout-home" title="Back to layouts">&#8592; Layouts</button>
+  </div>
   <span id="hint">Scroll to zoom · Drag to pan</span>
 </div>
 
@@ -249,6 +362,119 @@
 <div id="layers-panel">
   <span id="layers-panel-title">Layers</span>
   <div id="layers-list"></div>
+</div>
+
+<div id="zones-panel">
+  <span id="zones-panel-title">Zones</span>
+  <div id="zones-list"></div>
+</div>
+
+<div id="builder-panel">
+  <div id="builder-panel-header">
+    <span id="builder-panel-title">Zone Builder</span>
+    <button id="btn-builder-close" title="Close builder">&#x2715;</button>
+  </div>
+
+  <div class="builder-section">Tree Labels</div>
+  <div class="bld-row">
+    <div class="bld-field">
+      <label>Zone</label>
+      <input id="bld-zone" type="text" value="Z1" />
+    </div>
+    <div class="bld-field">
+      <label>Aisles</label>
+      <input id="bld-aisle-count" type="number" min="1" value="1" />
+    </div>
+  </div>
+  <div class="bld-row">
+    <div class="bld-field">
+      <label>Bays</label>
+      <input id="bld-bay-count" type="number" min="1" value="4" />
+    </div>
+    <div class="bld-field">
+      <label>Shelves</label>
+      <input id="bld-shelf-count" type="number" min="1" value="3" />
+    </div>
+  </div>
+
+  <div class="builder-section">Aisle Style</div>
+  <div class="bld-row">
+    <div class="bld-field">
+      <label>Style</label>
+      <select id="bld-aisle-style">
+        <option value="linear">Linear (evenly spaced)</option>
+        <option value="vna">VNA (back-to-back)</option>
+      </select>
+    </div>
+  </div>
+  <div class="bld-row" id="bld-vna-row">
+    <div class="bld-field">
+      <label>Aisle Width (mm)</label>
+      <input id="bld-aisle-width" type="number" min="0.1" step="100" value="2000" />
+    </div>
+  </div>
+
+  <div class="builder-section">Geometry (mm)</div>
+  <div class="bld-row">
+    <div class="bld-field"><label>Dim X</label><input id="bld-dim-x"    type="number" min="0.1" step="100" value="1000" /></div>
+    <div class="bld-field"><label>Dim Y</label><input id="bld-dim-y"    type="number" min="0.1" step="100" value="1000" /></div>
+    <div class="bld-field"><label>Dim Z</label><input id="bld-dim-z"    type="number" min="0.1" step="100" value="1000" /></div>
+  </div>
+  <div class="builder-section" title="Distance between adjacent location origins along each axis. Stride = Dim &#x2192; locations are flush. Stride &gt; Dim &#x2192; gap between them.">Stride &#x2194; spacing between origins &#x24D8;</div>
+  <div class="bld-row">
+    <div class="bld-field"><label>Stride X</label><input id="bld-stride-x" type="number" min="0.1" step="100" value="1000" /></div>
+    <div class="bld-field"><label>Stride Y</label><input id="bld-stride-y" type="number" min="0.1" step="100" value="1000" /></div>
+    <div class="bld-field"><label>Stride Z</label><input id="bld-stride-z" type="number" min="0.1" step="100" value="1000" /></div>
+  </div>
+  <div class="bld-row">
+    <div class="bld-field"><label>Z Origin</label><input id="bld-z-origin" type="number" step="100" value="0" /></div>
+  </div>
+
+  <div class="builder-section">Orientation</div>
+  <div class="bld-row">
+    <div class="bld-field">
+      <label>Rotation (°)</label>
+      <input id="bld-rotation" type="number" min="-360" max="360" step="15" value="0" />
+    </div>
+  </div>
+  <div class="bld-row" id="bld-rot-presets">
+    <button class="btn bld-rot-preset" data-deg="0">0°</button>
+    <button class="btn bld-rot-preset" data-deg="90">90°</button>
+    <button class="btn bld-rot-preset" data-deg="180">180°</button>
+    <button class="btn bld-rot-preset" data-deg="270">270°</button>
+  </div>
+
+  <div class="builder-section">Config</div>
+  <div class="bld-row">
+    <div class="bld-field">
+      <label>Capacity</label>
+      <input id="bld-capacity" type="number" min="1" value="1" />
+    </div>
+    <div class="bld-field">
+      <label>Processor</label>
+      <select id="bld-processor">
+        <option value="FIFOFlowChannelProcessor">FIFO Flow</option>
+        <option value="LIFOFlowChannelProcessor">LIFO Flow</option>
+        <option value="OMNIFlowChannelProcessor">OMNI Flow</option>
+        <option value="FIFOChannelProcessor">FIFO</option>
+        <option value="LIFOChannelProcessor">LIFO</option>
+        <option value="OMNIChannelProcessor">OMNI</option>
+        <option value="FIFOPushChannelProcessor">FIFO Push</option>
+        <option value="LIFOPushChannelProcessor">LIFO Push</option>
+        <option value="OMNIPushChannelProcessor">OMNI Push</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="builder-section">Place at (mm)</div>
+  <div class="bld-row">
+    <div class="bld-field"><label>Origin X</label><input id="bld-pos-x" type="number" step="100" placeholder="snap" /></div>
+    <div class="bld-field"><label>Origin Y</label><input id="bld-pos-y" type="number" step="100" placeholder="snap" /></div>
+    <button class="btn" id="btn-pin-pos" title="Pin position — ghost stays at typed coords">&#x1F512;</button>
+  </div>
+  <div class="bld-row">
+    <button class="btn btn-sim" id="btn-place-here">&#9654; Place here</button>
+  </div>
 </div>
 
 <div id="confirm-overlay">
@@ -630,6 +856,10 @@ const locations        = new Map();
 const containers       = new Map();   // flat container registry
 window.TooltipDataStore = { locations, containers };
 const transferRequests = new Map();   // transfer_request_id → { transfer_request_id, container_id, source_loc_id, dest_loc_id }
+
+// ─── Builder-mode stubs (overridden by builder-mode.js when loaded) ───────────
+var placingZone = false;
+function _drawBuilderOverlay() {}
 
 // ─── Viz config ───────────────────────────────────────────────────────────────
 // Four zoom tiers. lodMidThreshold separates low from mid; lodHighThreshold separates mid from high;
@@ -1811,6 +2041,7 @@ function render() {
   }
 
   _drawZoneOrigins();
+  _drawBuilderOverlay();
   _drawCompass();
 }
 
@@ -2197,7 +2428,7 @@ function _commitHoverKey(key) {
 }
 
 canvas.addEventListener('mousemove', e => {
-  if (dragging) return;
+  if (dragging || placingZone) return;
 
   const zoneOriginHit = _hitTestZoneOrigin(e.clientX, e.clientY);
   if (zoneOriginHit) {
@@ -2660,7 +2891,7 @@ _buildLayerPanel();
 
 // Initialize index structure so _indexLoc has level-keyed Maps to add into during snapshot load
 _rebuildIndices();
-boot();
+// boot() is called after builder-mode.js loads (see script tags below)
 
 // ─── Simulation controls ──────────────────────────────────────────────────────
 const btnSimStart   = document.getElementById('btn-sim-start');
@@ -2989,5 +3220,7 @@ document.getElementById('btn-clear-locs').addEventListener('click', async () => 
   await loadSnapshot();
 });
 </script>
+<script src="/static/builder-mode.js"></script>
+<script>_startModePicker();</script>
 </body>
 </html>
