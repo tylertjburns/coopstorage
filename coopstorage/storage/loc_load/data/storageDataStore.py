@@ -73,8 +73,8 @@ class LocationDataStore:
         self._data_store.update(locs)
         return self
 
-    def remove(self, locs: Iterable[Location]):
-        self._data_store.remove(locs)
+    def remove(self, locs: Iterable[Location] = None, ids: Iterable[UniqueIdentifier] = None):
+        self._data_store.remove(locs, ids=ids)
         return self
 
 class TransferRequestDataStore:

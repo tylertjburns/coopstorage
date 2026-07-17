@@ -60,18 +60,21 @@ def start_visualizer(
     port: int = 1219,
     open_browser: bool = True,
     block: bool = False,
+    layout_manager=None,
 ) -> _UvicornThread:
     """Start the CoopStorage visualizer for the given storage object.
 
     Parameters
     ----------
-    storage:      The Storage instance to visualize.
-    host:         Host to bind the API server on (default: localhost).
-    port:         Port to bind the API server on (default: 1219).
-    open_browser: If True, open the visualizer URL in the default browser.
-    block:        If True, block until Ctrl+C then shut down automatically.
-                  If False, return the server thread immediately so the caller
-                  can drive its own loop and call server.stop() when done.
+    storage:        The Storage instance to visualize.
+    host:           Host to bind the API server on (default: localhost).
+    port:           Port to bind the API server on (default: 1219).
+    open_browser:   If True, open the visualizer URL in the default browser.
+    block:          If True, block until Ctrl+C then shut down automatically.
+                    If False, return the server thread immediately so the caller
+                    can drive its own loop and call server.stop() when done.
+    layout_manager: Optional LayoutManager; if provided, the v2 layouts API is
+                    mounted and the browser UI offers the Build mode picker.
 
     Returns
     -------
@@ -80,7 +83,7 @@ def start_visualizer(
     viz_url = f"http://{host}:{port}/static/index.html"
 
     event_bus = StorageEventBus()
-    app = storage_api_factory(storage=storage, event_bus=event_bus)
+    app = storage_api_factory(storage=storage, event_bus=event_bus, layout_manager=layout_manager)
     server_thread = _UvicornThread(app, host, port, event_bus)
     server_thread.start()
 

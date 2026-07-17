@@ -11,13 +11,13 @@ from fastapi.staticfiles import StaticFiles
 from coopstorage.storage.loc_load.storage import Storage
 from coopstorage.storage.loc_load.data.storageDataStore import StorageDataStore
 from coopstorage.storage.loc_load.event_bus import StorageEventBus
-from coopstorage.storage.api.routers import v1
+from coopstorage.storage.api.routers import v1, v2
 from coopstorage.storage.api.routers.v1.heatmap_tracker import HeatmapTracker
 
 logger = logging.getLogger(__name__)
 
 
-def _v1_router(storage: Storage, event_bus: StorageEventBus) -> APIRouter:
+def v1_router(storage: Storage, event_bus: StorageEventBus) -> APIRouter:
     router          = APIRouter(prefix="/v1")
     heatmap_tracker = HeatmapTracker(storage)
     router.include_router(v1.container_router_factory(storage),          tags=["containers"])
@@ -32,10 +32,21 @@ def _v1_router(storage: Storage, event_bus: StorageEventBus) -> APIRouter:
     return router
 
 
+def v2_router(layout_manager) -> APIRouter:
+    router = APIRouter(prefix="/v2")
+    router.include_router(v2.layout_router_factory(layout_manager), tags=["layouts"])
+    return router
+
+
+# Keep the old private name as an alias so existing callers aren't broken.
+_v1_router = v1_router
+
+
 def storage_api_factory(
     storage: Optional[Storage] = None,
     version_routers: Optional[List[APIRouter]] = None,
     event_bus: Optional[StorageEventBus] = None,
+    layout_manager=None,
 ) -> FastAPI:
     if event_bus is None:
         event_bus = StorageEventBus()
@@ -60,8 +71,11 @@ def storage_api_factory(
 
     app = FastAPI(lifespan=lifespan)
 
-    for router in (version_routers or [_v1_router(storage, event_bus)]):
+    for router in (version_routers or [v1_router(storage, event_bus)]):
         app.include_router(router)
+
+    if layout_manager is not None:
+        app.include_router(v2_router(layout_manager))
 
     static_dir = os.path.join(os.path.dirname(__file__), "static")
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
