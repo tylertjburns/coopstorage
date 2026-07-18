@@ -574,7 +574,7 @@
     <div class="viz-tier-section">
       <div class="viz-tier-header">
         Low zoom
-        <span>scale &lt; <input id="viz-lod-mid" type="number" min="0.5" max="200" step="0.25" value="1.25" /></span>
+        <span>scale &lt; <input id="viz-lod-mid" type="number" min="0.001" max="10" step="0.005" value="0.015" /> px/mm</span>
       </div>
       <div class="viz-field">
         <label>Wireframes</label>
@@ -634,7 +634,7 @@
     <div class="viz-tier-section">
       <div class="viz-tier-header">
         Mid zoom
-        <span>scale &lt; <input id="viz-lod-high" type="number" min="0.5" max="200" step="0.5" value="4" /></span>
+        <span>scale &lt; <input id="viz-lod-high" type="number" min="0.001" max="10" step="0.005" value="0.030" /> px/mm</span>
       </div>
       <div class="viz-field">
         <label>Wireframes</label>
@@ -694,7 +694,7 @@
     <div class="viz-tier-section">
       <div class="viz-tier-header">
         High zoom
-        <span>scale &lt; <input id="viz-lod-ultra" type="number" min="0.5" max="200" step="1" value="10" /></span>
+        <span>scale &lt; <input id="viz-lod-ultra" type="number" min="0.001" max="10" step="0.005" value="0.060" /> px/mm</span>
       </div>
       <div class="viz-field">
         <label>Wireframes</label>
@@ -865,40 +865,40 @@ function _drawBuilderOverlay() {}
 // Four zoom tiers. lodMidThreshold separates low from mid; lodHighThreshold separates mid from high;
 // lodUltraThreshold separates high from ultra.
 const vizConfig = {
-  lodMidThreshold:   1.25,  // scale: below → low tier
-  lodHighThreshold:  4,     // scale: above → high tier (between mid and high thresholds = mid)
-  lodUltraThreshold: 10,    // scale: above → ultra tier
+  lodMidThreshold:   0.015,  // scale (px/mm): below → low tier
+  lodHighThreshold:  0.030,  // scale (px/mm): above → high tier
+  lodUltraThreshold: 0.060,  // scale (px/mm): above → ultra tier
   showLocIds:        false,
   showZoneOrigins:   false,
   showCompass:       true,
   showGrid:          true,
   tiers: {
     low: {
-      wireframeLevels:     ['zone', 'aisle'],
+      wireframeLevels:     ['zone'],
       hoverLevel:          'aisle',
       hoverDetail:         'dots',
-      hoverWireframeLevel: 'row',
+      hoverWireframeLevel: ['zone'],
       locsDisplay:         'none',
     },
     mid: {
       wireframeLevels:     ['aisle'],
       hoverLevel:          'aisle',
       hoverDetail:         'dots',
-      hoverWireframeLevel: 'bay',
+      hoverWireframeLevel: ['zone'],
       locsDisplay:         'dots',
     },
     high: {
-      wireframeLevels:     ['row', 'bay'],
+      wireframeLevels:     ['bay'],
       hoverLevel:          'bay',
       hoverDetail:         'tiles',
-      hoverWireframeLevel: 'aisle',
+      hoverWireframeLevel: ['aisle'],
       locsDisplay:         'grey',
     },
     ultra: {
       wireframeLevels:     ['bay', 'shelf'],
       hoverLevel:          'loc',
       hoverDetail:         'tiles',
-      hoverWireframeLevel: 'row',
+      hoverWireframeLevel: ['aisle', 'bay'],
       locsDisplay:         'grey-slots',
     },
   },
@@ -1021,7 +1021,7 @@ function _groupKey(loc, level) {
   const parts = [];
   for (let i = 0; i <= idx; i++) {
     const l = knownLevels[i];
-    if (tp[l] === undefined) return null;
+    if (tp[l] === undefined) { if (i === idx) return null; continue; }
     parts.push(`${l[0]}${tp[l]}`);
   }
   return parts.join('_');
@@ -1034,7 +1034,7 @@ function _uniqueLevels(indexMap) {
     if (indexMap === wireframeIndices) {
       for (const l of tc.wireframeLevels) if (l) levels.add(l);
       // hoverWireframeLevel entries also need a wireframe index so they can be drawn on hover
-      if (tc.hoverWireframeLevel) levels.add(tc.hoverWireframeLevel);
+      if (tc.hoverWireframeLevel) for (const l of [].concat(tc.hoverWireframeLevel)) levels.add(l);
     } else {
       if (tc.hoverLevel) levels.add(tc.hoverLevel);
     }
@@ -1952,6 +1952,14 @@ function render() {
   ctx.fillRect(0, 0, W, H);
 
   const tc = _activeTierConfig();
+  if (!document.getElementById('lod-debug')) {
+    const _dbgEl = document.createElement('span');
+    _dbgEl.id = 'lod-debug';
+    _dbgEl.style.cssText = 'position:fixed;bottom:24px;left:8px;background:#000a;color:#0f0;font:11px monospace;padding:2px 6px;z-index:9999;pointer-events:none';
+    document.body.appendChild(_dbgEl);
+  }
+  const _dbg = document.getElementById('lod-debug');
+  if (_dbg) _dbg.textContent = `scale:${scale.toFixed(4)} tier:${_activeTier()}`;
   const r  = Math.max(1.5, scale * 0.6);
 
   // Fast path during gesture: dots + first wireframe level only
@@ -2011,12 +2019,15 @@ function render() {
     // Hover group outline + optional sub-level wireframes
     _drawGroupWireframe(hoveredAisleKey, hoverIdx, tc.hoverLevel);
     if (tc.hoverWireframeLevel) {
-      const wfIdx = wireframeIndices.get(tc.hoverWireframeLevel);
       const hoverLocs2 = hoverIdx.get(hoveredAisleKey);
-      if (wfIdx && hoverLocs2) {
-        for (const [key, keyLocIds] of wfIdx) {
-          for (const id of keyLocIds) {
-            if (hoverLocs2.has(id)) { _drawGroupWireframe(key, wfIdx, tc.hoverWireframeLevel); break; }
+      if (hoverLocs2) {
+        for (const wfl of [].concat(tc.hoverWireframeLevel)) {
+          const wfIdx = wireframeIndices.get(wfl);
+          if (!wfIdx) continue;
+          for (const [key, keyLocIds] of wfIdx) {
+            for (const id of keyLocIds) {
+              if (hoverLocs2.has(id)) { _drawGroupWireframe(key, wfIdx, wfl); break; }
+            }
           }
         }
       }
@@ -2028,12 +2039,15 @@ function render() {
   if (hoveredAisleKey !== null && hoverIdx) {
     _drawGroupLabel(hoveredAisleKey, hoverIdx, tc.hoverLevel);
     if (tc.hoverWireframeLevel) {
-      const wfIdx2 = wireframeIndices.get(tc.hoverWireframeLevel);
-      const hLocs  = hoverIdx.get(hoveredAisleKey);
-      if (wfIdx2 && hLocs) {
-        for (const [k, kIds] of wfIdx2) {
-          for (const id of kIds) {
-            if (hLocs.has(id)) { _drawGroupLabel(k, wfIdx2, tc.hoverWireframeLevel); break; }
+      const hLocs = hoverIdx.get(hoveredAisleKey);
+      if (hLocs) {
+        for (const wfl of [].concat(tc.hoverWireframeLevel)) {
+          const wfIdx2 = wireframeIndices.get(wfl);
+          if (!wfIdx2) continue;
+          for (const [k, kIds] of wfIdx2) {
+            for (const id of kIds) {
+              if (hLocs.has(id)) { _drawGroupLabel(k, wfIdx2, wfl); break; }
+            }
           }
         }
       }
@@ -3039,7 +3053,7 @@ for (const tier of ['low', 'mid', 'high', 'ultra']) {
     forceRender();
   });
   document.getElementById(`viz-wf-hover-level-${tier}`).addEventListener('change', e => {
-    vizConfig.tiers[tier].hoverWireframeLevel = e.target.value || null;
+    vizConfig.tiers[tier].hoverWireframeLevel = e.target.value ? [e.target.value] : null;
     _applyVizConfig();
   });
 }
