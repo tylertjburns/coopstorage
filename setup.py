@@ -6,11 +6,20 @@ HERE = Path(__file__).parent
 with open(HERE / 'README.md') as f:
     README = f.read()
 
-with open(HERE / 'requirements.txt') as f:
-    requirements = f.read().splitlines()
+CORE_REQUIRES = [
+    'cooptools>=1.57',
+    'PyPubSub',
+    'requests',
+]
+
+EXTRAS_REQUIRE = {
+    'api': ['fastapi', 'uvicorn', 'httpx', 'pydantic'],
+    'persistence': ['sqlalchemy>=2.0', 'psycopg2-binary', 'coopmongo', 'pydantic'],
+}
+EXTRAS_REQUIRE['all'] = sorted({dep for group in EXTRAS_REQUIRE.values() for dep in group})
 
 setuptools.setup(name='coopstorage',
-      version='1.25',
+      version='2.0',
       description='Package for embedded storage systems',
       url='https://github.com/tylertjburns/coopstorage',
       author='tburns',
@@ -18,7 +27,8 @@ setuptools.setup(name='coopstorage',
       license='MIT',
       packages=setuptools.find_packages(),
       python_requires=">3.5",
-      install_requires=requirements,
+      install_requires=CORE_REQUIRES,
+      extras_require=EXTRAS_REQUIRE,
       long_description_content_type="text/markdown",
       long_description=README,
       zip_safe=False,
