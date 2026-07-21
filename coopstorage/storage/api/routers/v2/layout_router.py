@@ -3,14 +3,13 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.exc import IntegrityError
 
 from coopstorage.storage.loc_load.location import Location
 from coopstorage.storage.loc_load import dcs
 import coopstorage.storage.loc_load.channel_processors as cps
 from coopstorage.storage.layout_manager import LayoutManager
-from coopstorage.storage.loc_load.data.sql.sql_layout_data_store import LayoutRecord
-from coopstorage.storage.loc_load.data.sql.sql_location_data_store import SqlLocationDataStore
+from coopstorage.storage.loc_load.data.layout_data_store import LayoutRecord
+from coopstorage.storage.loc_load.exceptions import DuplicateRecordException
 from coopstorage.storage.api.routers.v1.location_router import (
     CoordAPI,
     LocationMetaAPI,
@@ -49,12 +48,6 @@ def _require_layout(manager: LayoutManager, layout_id: str) -> LayoutRecord:
     return record
 
 
-def _get_sql_loc_store(storage) -> Optional[SqlLocationDataStore]:
-    """Unwrap the SqlLocationDataStore from Storage, or None for non-SQL backends."""
-    underlying = storage._data_store.LocationsData._data_store
-    return underlying if isinstance(underlying, SqlLocationDataStore) else None
-
-
 # ── Router factory ─────────────────────────────────────────────────────────────
 
 def layout_router_factory(layout_manager: LayoutManager) -> APIRouter:
@@ -68,7 +61,10 @@ def layout_router_factory(layout_manager: LayoutManager) -> APIRouter:
 
     @router.post("/layouts", response_model=LayoutRecord, status_code=201)
     def create_layout(body: CreateLayoutRequest):
-        return layout_manager.create_layout(body.name, body.description)
+        try:
+            return layout_manager.create_layout(body.name, body.description)
+        except DuplicateRecordException as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
 
     @router.get("/layouts/{layout_id}", response_model=LayoutRecord)
     def get_layout(layout_id: str):
@@ -110,7 +106,7 @@ def layout_router_factory(layout_manager: LayoutManager) -> APIRouter:
     def put_locations(layout_id: str, body: LocationsRequestAPIWrapper):
         _require_layout(layout_manager, layout_id)
         storage = layout_manager.get_storage(layout_id)
-        pg_store = _get_sql_loc_store(storage)
+        locs_data = storage._data_store.LocationsData
 
         # Register tree labels in the LocationMapTree first so SSE events
         # include tree_path from the initial LOCATION_REGISTERED event.
@@ -121,7 +117,7 @@ def layout_router_factory(layout_manager: LayoutManager) -> APIRouter:
         locs = [x.as_loc() for x in body.locations]
         try:
             storage.register_locs(locs=locs)
-        except IntegrityError:
+        except DuplicateRecordException:
             existing = [x.id for x in body.locations if x.id in storage.get_locs()]
             dup_label = ', '.join(existing) if existing else 'one or more locations'
             raise HTTPException(
@@ -129,11 +125,11 @@ def layout_router_factory(layout_manager: LayoutManager) -> APIRouter:
                 detail=f"Location(s) already exist in this layout: {dup_label}. Choose a different Zone name.",
             )
 
-        # Persist tree labels to the locations row in Postgres.
-        if pg_store is not None:
+        # Persist tree labels to the locations row for backends that support it.
+        if locs_data.supports_tree_labels:
             for loc_api in body.locations:
                 if loc_api.tree_labels:
-                    pg_store.upsert_tree_labels(loc_api.id, loc_api.tree_labels)
+                    locs_data.upsert_tree_labels(loc_api.id, loc_api.tree_labels)
 
         return {"registered": [x.id for x in body.locations]}
 
@@ -171,10 +167,10 @@ def layout_router_factory(layout_manager: LayoutManager) -> APIRouter:
         )
         storage._data_store.LocationsData.update([updated])
 
-        pg_store = _get_sql_loc_store(storage)
-        if body.tree_labels and pg_store is not None:
+        locs_data = storage._data_store.LocationsData
+        if body.tree_labels and locs_data.supports_tree_labels:
             storage.LocationMapTree.register(loc_id, **body.tree_labels)
-            pg_store.upsert_tree_labels(loc_id, body.tree_labels)
+            locs_data.upsert_tree_labels(loc_id, body.tree_labels)
 
         return Location.to_jsonable_dict(updated)
 

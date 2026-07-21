@@ -69,6 +69,12 @@ class TestV2LayoutRouter(unittest.TestCase):
         resp = self.client.get('/v2/layouts/00000000-0000-0000-0000-000000000000')
         self.assertEqual(resp.status_code, 404)
 
+    def test_create_duplicate_layout_returns_409(self):
+        self.client.post('/v2/layouts', json={'name': 'dup-layout'})
+        resp = self.client.post('/v2/layouts', json={'name': 'dup-layout'})
+        self.assertEqual(resp.status_code, 409)
+        self.assertIn('already exists', resp.json()['detail'])
+
     # ── Location CRUD ─────────────────────────────────────────────────────────
 
     def _create_layout(self, name='test-layout'):

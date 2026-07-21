@@ -4,9 +4,11 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 from sqlalchemy import and_, delete, insert, select, update
 from sqlalchemy import text as sa_text
+from sqlalchemy.exc import IntegrityError
 
 import coopstorage.storage.loc_load.dcs as dcs
 from coopstorage.storage.loc_load.location import Location
+from coopstorage.storage.loc_load.exceptions import DuplicateRecordException
 from cooptools.protocols import UniqueIdentifier
 from cooptools.qualifiers import PatternMatchQualifier
 
@@ -123,11 +125,16 @@ class SqlLocationDataStore:
         items_list = list(items)
         if not items_list:
             return self
-        with self._session_factory() as sess:
-            for loc in items_list:
-                loc_row, chan_row = self._location_to_rows(loc)
-                sess.execute(insert(chan_table).values(**chan_row))
-                sess.execute(insert(loc_table).values(**loc_row))
+        try:
+            with self._session_factory() as sess:
+                for loc in items_list:
+                    loc_row, chan_row = self._location_to_rows(loc)
+                    sess.execute(insert(chan_table).values(**chan_row))
+                    sess.execute(insert(loc_table).values(**loc_row))
+        except IntegrityError as exc:
+            raise DuplicateRecordException(
+                f"One or more locations already exist in layout {self._layout_id}"
+            ) from exc
         self._invalidate_cache()
         return self
 
@@ -169,25 +176,30 @@ class SqlLocationDataStore:
         if not items_list:
             return self
         inserted_any = False
-        with self._session_factory() as sess:
-            for loc in items_list:
-                row = sess.execute(
-                    select(loc_table.c.channel_id).where(and_(
-                        loc_table.c.id == str(loc.Id),
-                        loc_table.c.layout_id == self._layout_id,
-                    ))
-                ).fetchone()
-                if row is not None:
-                    sess.execute(
-                        update(chan_table)
-                        .where(chan_table.c.id == row.channel_id)
-                        .values(slots=loc.Slots, updated_at=sa_text('CURRENT_TIMESTAMP'))
-                    )
-                else:
-                    loc_row, chan_row = self._location_to_rows(loc)
-                    sess.execute(insert(chan_table).values(**chan_row))
-                    sess.execute(insert(loc_table).values(**loc_row))
-                    inserted_any = True
+        try:
+            with self._session_factory() as sess:
+                for loc in items_list:
+                    row = sess.execute(
+                        select(loc_table.c.channel_id).where(and_(
+                            loc_table.c.id == str(loc.Id),
+                            loc_table.c.layout_id == self._layout_id,
+                        ))
+                    ).fetchone()
+                    if row is not None:
+                        sess.execute(
+                            update(chan_table)
+                            .where(chan_table.c.id == row.channel_id)
+                            .values(slots=loc.Slots, updated_at=sa_text('CURRENT_TIMESTAMP'))
+                        )
+                    else:
+                        loc_row, chan_row = self._location_to_rows(loc)
+                        sess.execute(insert(chan_table).values(**chan_row))
+                        sess.execute(insert(loc_table).values(**loc_row))
+                        inserted_any = True
+        except IntegrityError as exc:
+            raise DuplicateRecordException(
+                f"One or more locations already exist in layout {self._layout_id}"
+            ) from exc
         if inserted_any:
             self._invalidate_cache()
         elif self._cache_valid:
