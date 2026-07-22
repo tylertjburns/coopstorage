@@ -38,6 +38,20 @@ A Python library for embedded storage tracking — models physical storage locat
 
 ---
 
+## Install
+
+`coopstorage` ships a lean core with optional extras for the API server and persistence backends:
+
+```bash
+pip install coopstorage                       # core simulation engine only
+pip install coopstorage[api]                  # + FastAPI visualizer/API server
+pip install coopstorage[persistence]          # + SQL (Postgres/SQLite) and MongoDB stores
+pip install coopstorage[api,persistence]      # both
+pip install coopstorage[all]                  # everything
+```
+
+---
+
 ## Quick Start
 
 ```python

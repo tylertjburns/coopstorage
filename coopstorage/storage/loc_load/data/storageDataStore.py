@@ -77,6 +77,19 @@ class LocationDataStore:
         self._data_store.remove(locs, ids=ids)
         return self
 
+    @property
+    def supports_tree_labels(self) -> bool:
+        return hasattr(self._data_store, 'get_tree_labels')
+
+    def get_tree_labels(self, loc_id: UniqueIdentifier) -> Dict:
+        if not self.supports_tree_labels:
+            return {}
+        return self._data_store.get_tree_labels(loc_id)
+
+    def upsert_tree_labels(self, loc_id: UniqueIdentifier, tree_labels: Dict) -> None:
+        if self.supports_tree_labels:
+            self._data_store.upsert_tree_labels(loc_id, tree_labels)
+
 class TransferRequestDataStore:
     def __init__(self,
                  data_store: DataStoreProtocol):

@@ -3,21 +3,12 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
 from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy.exc import IntegrityError
 
+from coopstorage.storage.loc_load.data.layout_data_store import LayoutRecord
+from coopstorage.storage.loc_load.exceptions import DuplicateRecordException
 from .tables import layouts as layouts_table, locations as loc_table
-
-
-class LayoutRecord(BaseModel):
-    id: UUID
-    name: str
-    description: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-    location_count: int = 0
-
-    model_config = {'from_attributes': True}
 
 
 def _now() -> datetime:
@@ -38,14 +29,17 @@ class SqlLayoutDataStore:
     def create(self, name: str, description: Optional[str] = None) -> LayoutRecord:
         layout_id = uuid.uuid4()
         now = _now()
-        with self._session_factory() as sess:
-            sess.execute(insert(layouts_table).values(
-                id=layout_id,
-                name=name,
-                description=description,
-                created_at=now,
-                updated_at=now,
-            ))
+        try:
+            with self._session_factory() as sess:
+                sess.execute(insert(layouts_table).values(
+                    id=layout_id,
+                    name=name,
+                    description=description,
+                    created_at=now,
+                    updated_at=now,
+                ))
+        except IntegrityError as exc:
+            raise DuplicateRecordException(f"Layout name '{name}' already exists") from exc
         return LayoutRecord(
             id=layout_id, name=name, description=description,
             created_at=now, updated_at=now, location_count=0,

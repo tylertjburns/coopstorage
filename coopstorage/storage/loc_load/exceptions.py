@@ -25,3 +25,7 @@ class UnblockDeadlockError(Exception):
             f"Deadlock detected while unblocking: container {blocker_id} blocks {target_id} "
             f"but is already in the active unblock chain {in_flight}"
         )
+
+class DuplicateRecordException(Exception):
+    def __init__(self, msg: str):
+        super().__init__(msg)

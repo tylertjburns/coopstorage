@@ -2,8 +2,9 @@ import logging
 from typing import Dict, List, Optional
 
 from coopstorage.location_map_tree import LocationMapTree
-from coopstorage.storage.loc_load.data.sql.sql_layout_data_store import SqlLayoutDataStore, LayoutRecord
-from coopstorage.storage.loc_load.data.sql.sql_location_data_store import SqlLocationDataStore
+from coopstorage.storage.loc_load.data.layout_data_store import (
+    LayoutDataStore, LayoutRecord, LocationDataStoreFactory,
+)
 from coopstorage.storage.loc_load.data.storageDataStore import StorageDataStore
 from coopstorage.storage.loc_load.storage import Storage
 
@@ -14,15 +15,19 @@ class LayoutManager:
     """
     Registry of Storage instances, one per layout_id.
 
-    Backend-agnostic: pass any session_factory whose context manager yields a
-    SQLAlchemy Session (same contract as get_session() in the db modules).
-    Use the factory helpers postgres_layout_manager() or sqlite_layout_manager()
-    for the standard backends, or wire your own session_factory for custom setups.
+    Backend-agnostic by injection: pass a LayoutDataStore and a factory that
+    builds a per-layout location DataStoreProtocol. LayoutManager itself never
+    imports a concrete backend. Use postgres_layout_manager() or
+    sqlite_layout_manager() for the standard SQL-backed factories.
     """
 
-    def __init__(self, session_factory):
-        self._session_factory = session_factory
-        self._layout_data_store = SqlLayoutDataStore(session_factory)
+    def __init__(
+        self,
+        layout_data_store: LayoutDataStore,
+        location_data_store_factory: LocationDataStoreFactory,
+    ):
+        self._layout_data_store = layout_data_store
+        self._location_data_store_factory = location_data_store_factory
         self._instances: Dict[str, Storage] = {}
 
     # ── Storage registry ──────────────────────────────────────────────────────
@@ -34,16 +39,19 @@ class LayoutManager:
         return self._instances[key]
 
     def _create_storage(self, layout_id: str) -> Storage:
-        loc_store = SqlLocationDataStore(layout_id, self._session_factory)
+        loc_store = self._location_data_store_factory(layout_id)
+        data_store = StorageDataStore(location_data_store=loc_store)
         tree = LocationMapTree()
 
-        loc_store._ensure_cache()
-        for loc_id, labels in loc_store._tree_cache.items():
-            if labels:
-                tree.register(loc_id, **labels)
+        locs_data = data_store.LocationsData
+        if locs_data.supports_tree_labels:
+            for loc_id in locs_data.get().keys():
+                labels = locs_data.get_tree_labels(loc_id)
+                if labels:
+                    tree.register(loc_id, **labels)
 
         storage = Storage(
-            data_store=StorageDataStore(location_data_store=loc_store),
+            data_store=data_store,
             location_map_tree=tree,
         )
         logger.info("Created Storage instance for layout %s (%d locations)",
@@ -81,14 +89,26 @@ class LayoutManager:
 def postgres_layout_manager() -> LayoutManager:
     """Return a LayoutManager backed by Postgres (DATABASE_URL must be set)."""
     from coopstorage.storage.loc_load.data.postgres.db import get_session, init_db
+    from coopstorage.storage.loc_load.data.sql.sql_layout_data_store import SqlLayoutDataStore
+    from coopstorage.storage.loc_load.data.sql.sql_location_data_store import SqlLocationDataStore
+
     init_db()
-    return LayoutManager(get_session)
+    return LayoutManager(
+        layout_data_store=SqlLayoutDataStore(get_session),
+        location_data_store_factory=lambda layout_id: SqlLocationDataStore(layout_id, get_session),
+    )
 
 
 def sqlite_layout_manager(url: str = None) -> LayoutManager:
     """Return a LayoutManager backed by SQLite. Defaults to coopstorage_dev.db."""
     from coopstorage.storage.loc_load.data.sqlite import db as sqlite_db
+    from coopstorage.storage.loc_load.data.sql.sql_layout_data_store import SqlLayoutDataStore
+    from coopstorage.storage.loc_load.data.sql.sql_location_data_store import SqlLocationDataStore
+
     if url:
         sqlite_db.set_url(url)
     sqlite_db.init_db()
-    return LayoutManager(sqlite_db.get_session)
+    return LayoutManager(
+        layout_data_store=SqlLayoutDataStore(sqlite_db.get_session),
+        location_data_store_factory=lambda layout_id: SqlLocationDataStore(layout_id, sqlite_db.get_session),
+    )
