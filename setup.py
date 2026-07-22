@@ -19,7 +19,7 @@ EXTRAS_REQUIRE = {
 EXTRAS_REQUIRE['all'] = sorted({dep for group in EXTRAS_REQUIRE.values() for dep in group})
 
 setuptools.setup(name='coopstorage',
-      version='2.0',
+      version='2.1',
       description='Package for embedded storage systems',
       url='https://github.com/tylertjburns/coopstorage',
       author='tburns',
