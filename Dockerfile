@@ -15,7 +15,11 @@ RUN grep -v "pywin32" requirements.txt | grep -v "^coopmongo" | sed 's/==/>=/' >
 
 COPY coopstorage/ ./coopstorage/
 
+RUN useradd --create-home app
+USER app
+
 EXPOSE 1219
 
-# --factory tells uvicorn to call the function to get the app instance
-CMD ["uvicorn", "coopstorage.storage.api.api_factory:storage_api_factory", "--factory", "--host", "0.0.0.0", "--port", "1219"]
+# Railway injects $PORT; 1219 is the local default. --factory calls create_app() for the instance.
+# Proxy headers make the OAuth callback URL https behind Railway's TLS edge.
+CMD uvicorn coopstorage.storage.api.server:create_app --factory --host 0.0.0.0 --port ${PORT:-1219} --proxy-headers --forwarded-allow-ips=*
