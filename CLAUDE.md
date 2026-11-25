@@ -142,4 +142,5 @@ chore branches and branch cleanup after merge.
 ## Specs
 
 Design specs live in `docs/specs/pending/` and move to `docs/specs/completed/` in the PR that finishes them.
+
 - [001 — Live and simulated layouts](docs/specs/pending/001-live-and-simulated-layouts.md)
