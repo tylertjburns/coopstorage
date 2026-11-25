@@ -5,8 +5,8 @@ pydantic
 PyPubSub
 uvicorn
 requests
-sqlalchemy>=2.0
-psycopg2-binary
+sqlalchemy>=2.1
+psycopg[binary]
 httpx
 authlib
 itsdangerous

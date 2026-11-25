@@ -14,7 +14,7 @@ CORE_REQUIRES = [
 
 EXTRAS_REQUIRE = {
     'api': ['fastapi', 'uvicorn', 'httpx', 'pydantic'],
-    'persistence': ['sqlalchemy>=2.0', 'psycopg2-binary', 'coopmongo', 'pydantic'],
+    'persistence': ['sqlalchemy>=2.1', 'psycopg[binary]', 'coopmongo', 'pydantic'],
     'server': ['authlib', 'itsdangerous'],
 }
 EXTRAS_REQUIRE['all'] = sorted({dep for group in EXTRAS_REQUIRE.values() for dep in group})
