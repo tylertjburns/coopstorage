@@ -1,0 +1,73 @@
+name: CD — Deploy to Railway
+
+# Called by python-package.yml after each release, or run manually from the Actions tab.
+# Not tag-triggered: the release tag is pushed with GITHUB_TOKEN, which never triggers other workflows.
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual deploy'
+        required: false
+        default: 'manual'
+
+jobs:
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    # Holds RAILWAY_TOKEN (secret), RAILWAY_SERVICE_NAME and HEALTH_URL (variables).
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # master, not the triggering sha, so the release's version-bump commit and tag are included.
+          ref: master
+          # Full history + tags so git describe resolves the release tag.
+          fetch-depth: 0
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Stamp version
+        run: |
+          BUILD_VERSION=$(git describe --tags --always --dirty=-dev)
+          echo "BUILD_VERSION=${BUILD_VERSION}" >> "$GITHUB_ENV"
+          echo "Stamped version: ${BUILD_VERSION}"
+
+      - name: Publish version as a service variable
+        # Read by /health at runtime. --skip-deploys so this doesn't redeploy the old image first.
+        run: |
+          railway variable set "COOPSTORAGE_BUILD_VERSION=${BUILD_VERSION}" \
+            --service "${{ vars.RAILWAY_SERVICE_NAME }}" --skip-deploys
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      - name: Deploy
+        # Without --detach the CLI streams build logs and exits non-zero on failure.
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_NAME }}"
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+      - name: Verify deployed version
+        # The deploy is only green once the running service reports the version just built.
+        run: |
+          if [ -z "${HEALTH_URL}" ]; then
+            echo "::error::HEALTH_URL variable is not set"
+            exit 1
+          fi
+          echo "Expecting version: ${BUILD_VERSION}"
+          for attempt in $(seq 1 30); do
+            body=$(curl -fsS --max-time 10 "${HEALTH_URL}" || true)
+            reported=$(printf '%s' "$body" | jq -r '.version // empty')
+            if [ "$reported" = "${BUILD_VERSION}" ]; then
+              echo "Verified: ${reported}"
+              exit 0
+            fi
+            echo "attempt ${attempt}: reported='${reported:-<none>}' - retrying"
+            sleep 10
+          done
+          echo "::error::Deployed version never matched ${BUILD_VERSION}. Last /health body: ${body:-<empty>}"
+          exit 1
+        env:
+          HEALTH_URL: ${{ vars.HEALTH_URL }}

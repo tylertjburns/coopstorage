@@ -126,6 +126,13 @@ jobs:
           tylertjburns/coopstorage:${{ steps.version.outputs.version }}
           tylertjburns/coopstorage:latest
 
+  deploy:
+    # After docker, so a Dockerfile that fails to build never reaches Railway.
+    needs: docker
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    uses: ./.github/workflows/cd.yml
+    secrets: inherit
+
   benchmark:
     needs: docker
     runs-on: ubuntu-latest
