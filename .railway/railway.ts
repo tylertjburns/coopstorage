@@ -20,6 +20,11 @@ export default defineRailway(() => {
       GOOGLE_CLIENT_ID: preserve(),
       GOOGLE_CLIENT_SECRET: preserve(),
       SESSION_SECRET: preserve(),
+      // The `coopstorage` database on CoopPlatform's `Postgres-urh0` instance, connecting as the
+      // `coopstorage` role, which owns only that database (same layout as job-search).
+      // Set in Railway as postgresql://coopstorage:${{COOPSTORAGE_DB_PASSWORD}}@${{Postgres-urh0.RAILWAY_PRIVATE_DOMAIN}}:5432/coopstorage
+      DATABASE_URL: preserve(),
+      COOPSTORAGE_DB_PASSWORD: preserve(),
       // Set by CD on every deploy; /health reports it.
       COOPSTORAGE_BUILD_VERSION: preserve(),
     },
