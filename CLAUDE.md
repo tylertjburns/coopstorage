@@ -69,7 +69,10 @@ Triggers on push to master or PR touching code/tests/setup/requirements:
 1. **validate** — flake8 lint + pytest (Python 3.11 / 3.12 / 3.13)
 2. **publish** — auto-increments `setup.py` minor version, publishes to PyPI
 3. **docker** — builds and pushes `tylertjburns/coopstorage:<version>` + `latest` to Docker Hub
-4. **benchmark** — runs performance tests, captures artifact (90-day retention)
+4. **deploy** — `cd.yml`: `railway up` to `coopstorage-web` (Railway, `.railway/railway.ts`), then verifies `/health` reports the new version
+5. **benchmark** — runs performance tests, captures artifact (90-day retention)
+
+Hosted entry point and its env vars: `coopstorage/storage/api/server.py` (Google sign-in gate).
 
 Chore-only PRs (docs/config) should include `[skip ci]` in the commit message to skip CI.
 
@@ -135,3 +138,8 @@ chore branches and branch cleanup after merge.
 - **Visualizer** streams real-time updates via SSE; served at `/static/index.html`.
 - **MongoDB integration** is optional — `storage2mongo.py` handles persistence if configured.
 - Python 3.11+ required (CI matrix: 3.11, 3.12, 3.13).
+
+## Specs
+
+Design specs live in `docs/specs/pending/` and move to `docs/specs/completed/` in the PR that finishes them.
+- [001 — Live and simulated layouts](docs/specs/pending/001-live-and-simulated-layouts.md)
