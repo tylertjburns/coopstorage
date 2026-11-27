@@ -1,6 +1,6 @@
 # Spec 001 — Live and simulated layouts
 
-> **Status:** PENDING
+> **Status:** PENDING — phase 1 (migrations) done
 > **Criticality:** P1 for the hosted service. Today a redeploy wipes every container, and the simulator writes into the same storage that real callers would use.
 > **Effort:** L (phases 1–6, each its own PR)
 > **Prerequisites:** none. Rollout Phase 4 (tenant scoping) builds on this spec's layout-scoped routes and migration tooling.
@@ -60,10 +60,11 @@ The v1 routers become layout-scoped under `/v2/layouts/{layout_id}/…`, and eac
 
 - Add **Alembic**. The first migration records the schema as it is today, and the second:
   - makes `containers`'s primary key `(id, layout_id)`, with `ON DELETE CASCADE` from `layouts`;
-  - replaces `transfers.container_id`'s foreign key with a composite `(container_id, source_layout_id)` key, or drops it (decide when implementing);
+  - drops `transfers.container_id`'s foreign key: a container that moves between layouts changes its key, so a transfer can't keep a reference to it. Both `transfers` layout foreign keys cascade on delete;
   - leaves `layouts` unchanged. The live/simulation mode needs no column, because simulations are never saved.
-- `init_db()` runs `alembic upgrade head` instead of `create_all`, on SQLite and Postgres alike.
-- The production tables are empty today, so this migration needs no data backfill.
+- Postgres `init_db()` runs the migrations instead of `create_all`. SQLite and the tests keep `create_all`, the same split as locker's `MigrateAsync`/`EnsureCreated`. One test upgrades an empty SQLite database and checks it matches `tables.py`. The migrations live inside the package (`coopstorage/storage/loc_load/data/migrations/`) so the Docker image and the wheel ship them.
+- A database created by the old `create_all` is stamped at the baseline before upgrading.
+- The production tables are empty today, so the migration recreates `containers` and `transfers` instead of altering them, and refuses to run if either table has rows.
 
 ## Phases (one PR each)
 

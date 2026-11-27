@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from .tables import metadata
+from coopstorage.storage.loc_load.data import migrations
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +38,9 @@ def get_engine():
 
 
 def init_db():
-    """Create all tables that do not yet exist. Safe to call on every startup."""
-    metadata.create_all(get_engine())
-    logger.info("Postgres schema initialised")
+    """Apply pending Alembic migrations. Safe to call on every startup."""
+    migrations.upgrade(get_engine())
+    logger.info("Postgres schema migrated to head")
 
 
 @contextmanager
