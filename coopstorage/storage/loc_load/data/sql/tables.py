@@ -58,26 +58,29 @@ Index('ix_locations_layout', locations.c.layout_id,
 
 containers = Table(
     'containers', metadata,
-    Column('id', String(255), primary_key=True),
+    Column('id', String(255), nullable=False),
+    Column('layout_id', Uuid(as_uuid=True),
+           ForeignKey('layouts.id', ondelete='CASCADE'), nullable=False),
     Column('uom_name', String(100)),
     Column('weight', Float),
     Column('contents', JSON, default=list),
     Column('uom_capacities', JSON, default=list),
     Column('location_id', String(255)),
-    Column('layout_id', Uuid(as_uuid=True), ForeignKey('layouts.id')),
     Column('updated_at', DateTime(timezone=True), server_default=sa_text('CURRENT_TIMESTAMP')),
+    PrimaryKeyConstraint('id', 'layout_id', name='pk_containers'),
 )
 
 Index('ix_containers_placement', containers.c.location_id, containers.c.layout_id)
 
+# container_id has no foreign key: a container moving between layouts changes its key.
 transfers = Table(
     'transfers', metadata,
     Column('id', Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4),
     Column('source_location_id', String(255)),
-    Column('source_layout_id', Uuid(as_uuid=True), ForeignKey('layouts.id')),
+    Column('source_layout_id', Uuid(as_uuid=True), ForeignKey('layouts.id', ondelete='CASCADE')),
     Column('dest_location_id', String(255)),
-    Column('dest_layout_id', Uuid(as_uuid=True), ForeignKey('layouts.id')),
-    Column('container_id', String(255), ForeignKey('containers.id')),
+    Column('dest_layout_id', Uuid(as_uuid=True), ForeignKey('layouts.id', ondelete='CASCADE')),
+    Column('container_id', String(255)),
     Column('status', String(50), nullable=False, default='pending'),
     Column('criteria', JSON),
     Column('requested_at', DateTime(timezone=True), server_default=sa_text('CURRENT_TIMESTAMP'), nullable=False),

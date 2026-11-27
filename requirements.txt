@@ -6,6 +6,7 @@ PyPubSub
 uvicorn
 requests
 sqlalchemy>=2.1
+alembic
 psycopg[binary]
 httpx
 authlib
