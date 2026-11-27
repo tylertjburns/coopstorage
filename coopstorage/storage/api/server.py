@@ -6,7 +6,7 @@ email is in ALLOWED_EMAILS. The session cookie holds only the email.
 
 Required env: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET, ALLOWED_EMAILS
 (comma-separated). Optional: DATABASE_URL (mounts /v2 layouts on Postgres),
-COOPSTORAGE_BUILD_VERSION, SESSION_HTTPS_ONLY (default true).
+COOPSTORAGE_BUILD_VERSION, SESSION_HTTPS_ONLY (default true), LOG_LEVEL (default INFO).
 """
 import logging
 import os
@@ -108,6 +108,9 @@ def auth_router(client_id: str, client_secret: str, allowed_emails: FrozenSet[st
 
 
 def create_app() -> FastAPI:
+    # uvicorn configures only its own loggers; without this, app and Alembic INFO lines never reach stdout.
+    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+                        format="%(levelname)s %(name)s: %(message)s")
     allowed_emails = _allowed_emails()
     client_id = _required_env("GOOGLE_CLIENT_ID")
     client_secret = _required_env("GOOGLE_CLIENT_SECRET")
